@@ -1,0 +1,5 @@
+# Transcription. Installed by setup.sh into the private .venv folder.
+faster-whisper>=1.1.0
+huggingface_hub>=0.23
+certifi
+truststore>=0.9

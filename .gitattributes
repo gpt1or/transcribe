@@ -1,0 +1,3 @@
+# Keep Unix line endings so the scripts also run from a Windows checkout (Git Bash / WSL).
+*.sh text eol=lf
+*.py text eol=lf
