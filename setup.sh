@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  setup.sh - installs transcribe into a private virtual environment (.venv)
-#  inside this folder. Nothing is installed system-wide. Safe to run again:
-#  it picks up where it stopped. run.sh calls it automatically when needed.
+#  setup.sh - for a clone of the repository: installs hebrew-transcribe into a
+#  private virtual environment (.venv) inside this folder, in editable mode, so
+#  `git pull` updates it. Nothing is installed system-wide. Safe to run again.
+#  run.sh calls it automatically when needed.
+#
+#  Not using a clone? Install the package instead (see README):
+#    pipx install "git+https://github.com/gpt1or/transcribe.git"
 # ============================================================================
 set -eo pipefail
 
@@ -57,24 +61,15 @@ fi
 echo "  ok"
 
 echo ""
-echo "== 3/5  Packages =="
-"$PY" -m pip install -q -r "$DIR/requirements.txt"
-if [ "$DIARIZE" = 1 ]; then
-  echo "  + speaker labels (pyannote.audio and PyTorch; this is the large part)"
-  "$PY" -m pip install -q -r "$DIR/requirements-diarize.txt"
-fi
-echo "  ok"
-
-echo ""
-echo "== 4/5  Certificates =="
+echo "== 3/5  Certificates =="
 if [ "$CORP_CERTS" = 1 ]; then
   if [ "$(uname)" != "Darwin" ]; then
     echo "  --corp-certs is for macOS. On Linux, add the proxy's CA certificate to"
     echo "  the system store (e.g. update-ca-certificates); it is then used automatically."
   else
-    # Public CAs from certifi + every certificate in the macOS keychains, which
-    # include the corporate proxy's. Certificates only, never private keys.
-    "$PY" -c 'import certifi, shutil, sys; shutil.copyfile(certifi.where(), sys.argv[1])' "$CERTS"
+    # Public CAs from pip's bundle + every certificate in the macOS keychains,
+    # which include the corporate proxy's. Certificates only, never private keys.
+    "$PY" -c 'import sys; from pip._vendor import certifi; open(sys.argv[1], "w").write(open(certifi.where()).read())' "$CERTS"
     for kc in /System/Library/Keychains/SystemRootCertificates.keychain \
               /Library/Keychains/System.keychain \
               "$HOME/Library/Keychains/login.keychain-db"; do
@@ -90,12 +85,22 @@ else
   echo "  corporate proxy on macOS, run:  bash setup.sh --corp-certs"
 fi
 if [ -s "$CERTS" ]; then
-  export SSL_CERT_FILE="$CERTS" REQUESTS_CA_BUNDLE="$CERTS" CURL_CA_BUNDLE="$CERTS"
+  export SSL_CERT_FILE="$CERTS" REQUESTS_CA_BUNDLE="$CERTS" CURL_CA_BUNDLE="$CERTS" PIP_CERT="$CERTS"
 fi
 
 echo ""
+echo "== 4/5  Package =="
+if [ "$DIARIZE" = 1 ]; then
+  echo "  with speaker labels (pyannote.audio and PyTorch; this is the large part)"
+  "$PY" -m pip install -q -e "$DIR[diarize]"
+else
+  "$PY" -m pip install -q -e "$DIR"
+fi
+echo "  ok: $("$PY" -m hebrew_transcribe --version)"
+
+echo ""
 echo "== 5/5  Speech model (one-time download: ~1.6 GB turbo, ~3 GB full) =="
-"$PY" "$DIR/transcribe.py" --download-only --model "$MODEL"
+"$PY" -m hebrew_transcribe --download-only --model "$MODEL"
 
 echo ""
 echo "=================================================================="

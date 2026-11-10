@@ -1,0 +1,39 @@
+# Publishes to PyPI when a GitHub release is published, using PyPI "trusted
+# publishing": no password or API token is stored anywhere. One-time setup on
+# pypi.org (Account settings > Publishing > Add a new pending publisher):
+#   PyPI project name: hebrew-transcribe   Owner: gpt1or   Repository: transcribe
+#   Workflow name: publish.yml             Environment name: pypi
+name: publish
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  pypi:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/hebrew-transcribe/
+    permissions:
+      id-token: write  # trusted publishing
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build the sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Check that the release tag matches the package version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! ls dist | grep -q "^hebrew_transcribe-${version}[.-]"; then
+            echo "Release tag ${GITHUB_REF_NAME} does not match the built version:"
+            ls dist
+            exit 1
+          fi
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

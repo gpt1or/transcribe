@@ -1,0 +1,34 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build the sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Install the wheel with its dependencies
+        run: python -m pip install dist/*.whl
+      - name: Smoke test the commands
+        run: |
+          transcribe --version
+          hebrew-transcribe --help
+          python -m hebrew_transcribe --version
+      - name: Unit tests (offline; the models are replaced by fakes)
+        run: python -m unittest discover -s tests -v

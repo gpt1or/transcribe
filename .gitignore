@@ -3,13 +3,16 @@
 .env
 *.pem
 
-# --- Local environment and caches -------------------------------------------
+# --- Local environment, caches and build output ------------------------------
 .venv/
 venv/
 __pycache__/
 *.pyc
 *.part
 .DS_Store
+build/
+dist/
+*.egg-info/
 
 # --- Your data: recordings and transcripts stay on your machine -------------
 transcripts/

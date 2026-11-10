@@ -1,8 +1,8 @@
 # transcribe
 
-**Private, local Hebrew speech-to-text, with optional speaker labels.**
+**Private, local Hebrew speech-to-text, with optional speaker labels.** Python package: `hebrew-transcribe`.
 
-Turn recordings (phone calls, meetings, voice notes, videos) into timestamped text on your own computer. After a one-time model download it works offline, and it never sends your audio anywhere.
+Turn recordings (phone calls, meetings, voice notes, videos) into timestamped text on your own computer, from the command line or from Python. After a one-time model download it works offline, and it never sends your audio anywhere.
 
 > [!IMPORTANT]
 > Read the **[Disclaimer](#disclaimer)** before using this software ([Hebrew version below](#disclaimer-he)). You alone are responsible for having the legal right to process each recording, and for checking every transcript against the original audio.
@@ -15,12 +15,39 @@ Turn recordings (phone calls, meetings, voice notes, videos) into timestamped te
 - **Optional speaker labels.** `--diarize` separates voices into "Speaker 1", "Speaker 2" with [pyannote](https://github.com/pyannote/pyannote-audio). Off by default.
 - **Source files are never touched.** They are opened read-only, never converted or moved. Each transcript records the SHA-256 of its source file, so it can be matched to the exact file it came from.
 - **Resumable.** Stop with Ctrl-C at any time; run the same command again and it continues.
+- **A command and a library.** `transcribe` on the command line, `from hebrew_transcribe import Transcriber` in Python.
 - **Telemetry off.** The usage metrics of the underlying libraries are disabled.
-- **Corporate networks.** Uses the operating system's certificate store, so downloads usually work behind TLS-inspecting proxies.
 
-## Quick start (macOS / Linux)
+## Install
 
-Needs Python 3.10 or newer and about 3 GB of free disk space.
+Needs Python 3.10 or newer and about 3 GB of free disk space. The speech model (about 1.6 GB) is downloaded the first time you transcribe.
+
+**As a command-line tool**, with [pipx](https://pipx.pypa.io), which keeps it in its own environment:
+
+```bash
+pipx install "git+https://github.com/gpt1or/transcribe.git"
+transcribe ~/path/to/recordings
+```
+
+**Into a Python environment**, to use it from your own code (or without pipx):
+
+```bash
+pip install "hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git"
+```
+
+**As a dependency of another project**, pinned to a release:
+
+```text
+# requirements.txt
+hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.1.0
+```
+
+```toml
+# pyproject.toml
+dependencies = ["hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.1.0"]
+```
+
+**From a clone, without installing anything system-wide** (macOS / Linux):
 
 ```bash
 git clone https://github.com/gpt1or/transcribe.git
@@ -28,29 +55,21 @@ cd transcribe
 bash run.sh ~/path/to/recordings
 ```
 
-The first run installs everything into a private `.venv` folder inside the project and downloads the model (about 1.6 GB). That takes a few minutes, once. Transcripts are written to `./transcripts/`.
+`run.sh` installs the package into a private `.venv` folder on the first run (a few minutes, once) and then works exactly like the `transcribe` command.
 
-**Windows (PowerShell):**
+The program is available as `transcribe`, as `hebrew-transcribe` (the same program, in case another tool already uses the name `transcribe`) and as `python -m hebrew_transcribe`. Transcripts are written to `./transcripts/`. On Windows, use the pip or pipx commands above (Git must be installed), then run `transcribe C:\path\to\recordings`.
 
-```powershell
-py -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python transcribe.py C:\path\to\recordings
-```
-
-## Examples
+## Command line
 
 ```bash
-bash run.sh call.m4a                               # one file
-bash run.sh ~/Recordings --out ~/Transcripts       # a whole folder, custom output folder
-bash run.sh ~/Recordings --diarize --speakers 2    # phone calls, with speaker labels
-bash run.sh lecture.mp4 --model full               # slower model, sometimes more accurate
-bash run.sh ~/Recordings --prompt "רונית, יוסי, משכנתא" # names and terms that occur in the audio
+transcribe call.m4a                               # one file
+transcribe ~/Recordings --out ~/Transcripts       # a whole folder, custom output folder
+transcribe ~/Recordings --diarize --speakers 2    # phone calls, with speaker labels
+transcribe lecture.mp4 --model full               # slower model, sometimes more accurate
+transcribe ~/Recordings --prompt "רונית, יוסי, משכנתא" # names and terms that occur in the audio
 ```
 
-## Sample output
-
-An invented example:
+An invented example of the output:
 
 ```text
 Speaker 1:
@@ -59,8 +78,6 @@ Speaker 1:
 Speaker 2:
   [00:07] בטח, איזה יום נוח לך? ⟨?⟩
 ```
-
-## Options
 
 | Option | Meaning |
 |---|---|
@@ -78,7 +95,45 @@ Speaker 2:
 | `-q`, `--quiet` | do not print the text while working |
 | `--download-only` | download the model and exit |
 
+## Python
+
+```python
+from hebrew_transcribe import Transcriber, write_index
+
+transcriber = Transcriber()                   # loads the model (downloads it the first time)
+result = transcriber.transcribe("call.m4a")
+
+print(result.text)                            # the whole text
+for s in result.segments:                     # timestamps, confidence and speaker per segment
+    print(f"{s.start:8.1f}  {s.text}{'  ⟨?⟩' if s.low_confidence else ''}")
+
+result.save("transcripts")                    # call.txt, call.srt and call.json
+write_index("transcripts")                    # INDEX.md of the folder
+```
+
+With speaker labels (needs the `diarize` extra and a Hugging Face token, see below):
+
+```python
+transcriber = Transcriber(diarize=True)       # token from HF_TOKEN, `hf auth login`, or hf_token="..."
+result = transcriber.transcribe("call.m4a", speakers=2)
+```
+
+- `Transcriber(model="turbo", language="he", device="auto", prompt=None, flag_below=-0.55, diarize=False, ...)` loads the models once; reuse it for many files. `model` also accepts `"full"`, a Hugging Face id or a local folder; `language="auto"` detects the language.
+- `transcribe(path, ..., speakers=None, prompt=None, on_segment=None)` returns a `Transcript` (`.segments`, `.text`, `.sha256`, `.duration`, ...). `on_segment` is called with each segment as soon as it is ready.
+- `hebrew_transcribe.transcribe("call.m4a")` is a one-off shortcut; `Transcript.load("call.json")` reads a saved transcript back.
+- Errors are raised as `ModelDownloadError` and `DiarizationUnavailable`. Progress goes to the `hebrew_transcribe` logger; the library never prints.
+- The library does not change process-wide settings, apart from the two telemetry defaults described under [Privacy](#privacy). Behind a TLS-inspecting corporate proxy, call `hebrew_transcribe.use_system_certificates()` once at startup.
+
 ## Speaker labels (optional)
+
+Speaker labels need extra packages (pyannote.audio and PyTorch, about 1 to 2 GB):
+
+```bash
+pipx inject hebrew-transcribe "pyannote.audio>=4.0"                                       # pipx
+pip install "hebrew-transcribe[diarize] @ git+https://github.com/gpt1or/transcribe.git"   # pip
+```
+
+From a clone, `bash run.sh ... --diarize` installs them automatically.
 
 The speaker model is free but gated on Hugging Face, so a free access token is needed once:
 
@@ -86,7 +141,7 @@ The speaker model is free but gated on Hugging Face, so a free access token is n
 2. Accept the terms of <https://huggingface.co/pyannote/speaker-diarization-community-1> (with pyannote.audio 3.x: [speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) and [segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0))
 3. Create a token with **Read** access: <https://huggingface.co/settings/tokens>
 
-Then add `--diarize`. The first time, the extra packages are installed (pyannote.audio and PyTorch, about 1 to 2 GB) and you are asked for the token. Typing is hidden. The token is stored in plain text in `.hf_token` inside the project folder, readable only by your user account and excluded from git. You can set the `HF_TOKEN` environment variable instead.
+Then add `--diarize`. The first time, the command asks for the token; typing is hidden. It is saved where `hf auth login` saves it (`~/.cache/huggingface/token`), readable only by your user account; `hf auth logout` removes it. You can also set the `HF_TOKEN` environment variable instead.
 
 Speaker labels separate voices; they do not identify anyone. Matching "Speaker 1" to a real person is up to you, and labels can be wrong, especially when people talk over each other.
 
@@ -102,21 +157,32 @@ Speaker labels separate voices; they do not identify anyone. Matching "Speaker 1
 
 - Audio, transcripts and your token stay on your computer. This project has no server, and the author receives nothing.
 - The network is used only to install packages (from PyPI) and to download models (from Hugging Face). Once downloaded, the speech model is loaded from disk without contacting the network; the optional speaker model may still check Hugging Face for updates (metadata only). To block all network access, set `HF_HUB_OFFLINE=1`.
-- Telemetry is switched off: pyannote.audio's usage metrics (`PYANNOTE_METRICS_ENABLED=0`) and Hugging Face Hub telemetry (`HF_HUB_DISABLE_TELEMETRY=1`).
-- `transcripts/`, common audio formats, `.hf_token` and certificate files are listed in `.gitignore`, so they are not committed by accident if you work inside a clone of this repository.
+- Telemetry is off. Importing the package sets `PYANNOTE_METRICS_ENABLED=0` (pyannote.audio's usage metrics) and `HF_HUB_DISABLE_TELEMETRY=1`, unless you have set them yourself.
+- The command-line tool also trusts the operating system's certificate store and skips Hugging Face's Xet download CDN (`HF_HUB_DISABLE_XET=1`), which helps behind corporate proxies. The library leaves those choices to you.
+- In a clone, `transcripts/`, common audio formats, tokens and certificate files are listed in `.gitignore`, so they are not committed by accident.
 
 ## Troubleshooting
 
 | Symptom | What to do |
 |---|---|
-| `CERTIFICATE_VERIFY_FAILED` | A corporate proxy is inspecting TLS. On macOS run `bash setup.sh --corp-certs` and try again, or do the one-time download from another network. |
-| `403 Forbidden` from a `cdn.hf.co` address | The network blocks Hugging Face's Xet CDN. It is disabled by default here; if you re-enabled it, unset `HF_HUB_DISABLE_XET`. |
+| `CERTIFICATE_VERIFY_FAILED` | A corporate proxy is inspecting TLS. From a clone on macOS, run `bash setup.sh --corp-certs`; otherwise point `SSL_CERT_FILE` at your organisation's certificate bundle, or do the one-time download from another network. |
+| `403 Forbidden` from a `cdn.hf.co` address | The network blocks Hugging Face's Xet CDN. Set `HF_HUB_DISABLE_XET=1` (the command-line tool does this by default). |
 | The download keeps failing | Disconnect from a work VPN or switch network (a phone hotspot works) and run again. It resumes, and internet is needed only once. |
 | `python3: command not found` | macOS: `xcode-select --install` or `brew install python`. Linux: install `python3` and `python3-venv`. |
-| Speaker labels fail to load | Accept the model terms (see above) with the account that owns the token, and check the token. Transcription works without them. |
+| Speaker labels fail to load | Install the extra packages and accept the model terms (see above) with the account that owns the token. Transcription works without them. |
 | Text repeats in a loop | Run that file again with `--model full --force`. |
 | Disk space | Models are stored in `~/.cache/huggingface`: about 1.6 GB for `turbo`, about 3 GB for `full`. |
 | It is slow | faster-whisper runs on the CPU (also on Apple Silicon) unless an NVIDIA GPU is available. `turbo`, the default, is the fast model; close heavy applications. |
+
+## Development
+
+```bash
+git clone https://github.com/gpt1or/transcribe.git && cd transcribe
+python3 -m venv .venv && .venv/bin/pip install -e ".[diarize]"
+.venv/bin/python -m unittest discover -s tests -v    # offline: the models are replaced by fakes
+```
+
+To release: update `src/hebrew_transcribe/_version.py` and `CHANGELOG.md`, push, then publish a GitHub release tagged `vX.Y.Z`. The `publish` workflow uploads it to PyPI with trusted publishing (see the comment at the top of `.github/workflows/publish.yml` for the one-time setup).
 
 ## Third-party components
 
