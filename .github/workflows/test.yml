@@ -30,5 +30,23 @@ jobs:
           transcribe --version
           hebrew-transcribe --help
           python -m hebrew_transcribe --version
-      - name: Unit tests (offline; the models are replaced by fakes)
+      - name: Versions of the audio stack
+        run: >-
+          python -c "from importlib.metadata import version;
+          print({p: version(p) for p in ('faster-whisper', 'av', 'ctranslate2', 'onnxruntime', 'numpy')})"
+      - name: Unit tests (offline; the speech models are replaced by fakes)
         run: python -m unittest discover -s tests -v
+
+  # The one check that the branch rules of main require. It passes only when
+  # every job of the matrix above passed, so Python versions can be added or
+  # removed there without changing the rules.
+  tests-passed:
+    name: tests passed
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every test job passed
+        env:
+          RESULT: ${{ needs.test.result }}
+        run: test "$RESULT" = success
