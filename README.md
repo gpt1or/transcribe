@@ -44,12 +44,12 @@ pip install "hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git"
 
 ```text
 # requirements.txt
-hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.3.0
+hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.3.1
 ```
 
 ```toml
 # pyproject.toml
-dependencies = ["hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.3.0"]
+dependencies = ["hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.3.1"]
 ```
 
 **From a clone, without installing anything system-wide** (macOS / Linux):
@@ -285,7 +285,21 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[diarize]"
 
 Messages live in `src/hebrew_transcribe/i18n.py`; a test checks that every English message has a Russian translation with the same placeholders.
 
-To release: update `src/hebrew_transcribe/_version.py` and `CHANGELOG.md`, push, then publish a GitHub release tagged `vX.Y.Z`. The `publish` workflow uploads it to PyPI with trusted publishing (see the comment at the top of `.github/workflows/publish.yml` for the one-time setup).
+### Branch rules
+
+`main` is protected by two [rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets), kept in `.github/rulesets/`:
+
+- **Pull requests and passing tests**, for everyone, the owner included: changes reach `main` only through a pull request, and only once the `tests passed` check (every job of the test workflow) has succeeded on the latest version of the branch. `main` cannot be deleted or force-pushed.
+- **Code owner approval**: a pull request needs the approval of a code owner (`.github/CODEOWNERS`). Repository admins may merge their own pull requests without it (`gh pr merge --admin`), but never before the tests pass.
+
+To create them in a fork or a new copy of the repository, replace `OWNER/REPO`:
+
+```bash
+gh api repos/OWNER/REPO/rulesets --method POST --input .github/rulesets/main-tests.json
+gh api repos/OWNER/REPO/rulesets --method POST --input .github/rulesets/main-code-owner.json
+```
+
+To release: update `src/hebrew_transcribe/_version.py` and `CHANGELOG.md`, merge them through a pull request, then publish a GitHub release tagged `vX.Y.Z`. The `publish` workflow uploads it to PyPI with trusted publishing (see the comment at the top of `.github/workflows/publish.yml` for the one-time setup).
 
 ## Third-party components
 

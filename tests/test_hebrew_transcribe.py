@@ -84,8 +84,9 @@ def script(path: Path, speech, length=None) -> Path:
     return path
 
 
-def fake_decode_audio(path, sampling_rate=16000, split_stereo=False):
-    with open(path, "rb") as f:  # read-only, like the real one
+def fake_samples(container, sampling_rate=16000):
+    """Stands in for core._samples, which decodes an open file with PyAV."""
+    with open(container.path, "rb") as f:  # read-only, like the real one
         data = f.read()
     if data.startswith(b"{"):
         spec = json.loads(data)
@@ -158,9 +159,10 @@ class FakeWhisperModel:
 
 class FakeContainer:
     def __init__(self, path):
+        self.path = path
         with open(path, "rb") as f:
             self.audio_tracks = 0 if f.read(10) == b"video-only" else 1
-        self.streams = NS(audio=[object()] * self.audio_tracks, video=[object()])
+        self.streams = NS(audio=(object(),) * self.audio_tracks, video=(object(),))
 
     def __enter__(self):
         return self
@@ -170,8 +172,10 @@ class FakeContainer:
 
 
 def fake_av_open(path, mode="r", **kwargs):
-    STATE["av_open"].append((Path(path).name, mode))
+    STATE["av_open"].append((Path(path).name, mode, tuple(sorted(kwargs))))
     assert mode == "r", "a source file was opened for writing"
+    if STATE.get("av19") and "metadata_errors" in kwargs:  # PyAV 19 removed the argument
+        raise TypeError("open() got an unexpected keyword argument 'metadata_errors'")
     return FakeContainer(path)
 
 
@@ -241,7 +245,6 @@ def _module(name, **attrs):
 
 def install_fakes():
     fw = _module("faster_whisper", WhisperModel=FakeWhisperModel)
-    fw.audio = _module("faster_whisper.audio", decode_audio=fake_decode_audio)
     fw.vad = _module("faster_whisper.vad", VadOptions=FakeVadOptions,
                      get_speech_timestamps=fake_speech_timestamps)
     _module("av", open=fake_av_open)
@@ -259,6 +262,8 @@ install_fakes()
 
 import hebrew_transcribe as ht  # noqa: E402
 from hebrew_transcribe import cli, core, i18n, output  # noqa: E402
+
+core._samples = fake_samples  # opening the file and finding its sound track stay real
 
 HE_TURBO = ht.LANGUAGE_MODELS["he"]["turbo"]
 RU_TURBO = ht.LANGUAGE_MODELS["ru"]["turbo"]
@@ -286,7 +291,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         STATE.clear()
         STATE.update(pyannote="v4", hf="cached", token=None, interrupt=False, no_speech=False,
-                     vad_broken=False, turns=None, vad=0, pipeline_calls=[], loaded=[],
+                     vad_broken=False, turns=None, vad=0, av19=False, pipeline_calls=[], loaded=[],
                      detections=[], downloads=[], transcribed=[], av_open=[])
         env = mock.patch.dict(os.environ)
         env.start()
@@ -416,7 +421,7 @@ class MediaTests(Base):
         result = ht.Transcriber(language="auto").transcribe(self.videos / "Lecture.MKV")
         self.assertEqual((result.file, result.detected_language, result.model),
                          ("Lecture.MKV", "ru", RU_TURBO))
-        self.assertIn(("Lecture.MKV", "r"), STATE["av_open"])
+        self.assertEqual(STATE["av_open"], [("Lecture.MKV", "r", ("metadata_errors",))])
 
     def test_no_sound(self):
         with self.assertRaises(ht.NoAudioError) as caught:
@@ -429,10 +434,15 @@ class MediaTests(Base):
         self.assertEqual(STATE["loaded"], [HE_TURBO])  # no transcription was attempted
         self.assertEqual(STATE["transcribed"], [])
 
-    def test_without_pyav_the_decoder_decides(self):
-        with mock.patch.dict(sys.modules, {"av": None}):
-            self.assertEqual(len(ht.load_audio(self.videos / "clip.mp4")), 30 * SR)
-            self.assertIsNone(core._audio_tracks(self.videos / "clip.mp4"))
+    def test_pyav_19(self):
+        # PyAV 19 removed the metadata_errors argument that PyAV 18 and older need.
+        STATE["av19"] = True
+        self.assertEqual(len(ht.load_audio(self.videos / "clip.mp4")), 30 * SR)
+        self.assertEqual(STATE["av_open"], [("clip.mp4", "r", ("metadata_errors",)), ("clip.mp4", "r", ())])
+        with self.assertRaises(ht.NoAudioError):
+            ht.load_audio(self.videos / "silent.mov")
+        result = ht.Transcriber(language="he,ru").transcribe(self.call)
+        self.assertTrue(result.mixed)
 
     def test_cli_with_videos(self):
         code, text = self.run_cli(self.videos, "--out", self.out, "--language", "auto", "-q")
@@ -597,7 +607,7 @@ class TranscriberTests(Base):
             before = (source.read_bytes(), source.stat().st_mtime_ns)
             ht.Transcriber(language="he,ru").transcribe(source).save(source.parent)  # even next to it
             self.assertEqual((source.read_bytes(), source.stat().st_mtime_ns), before, source.name)
-        self.assertEqual({mode for _, mode in STATE["av_open"]}, {"r"})
+        self.assertEqual({mode for _, mode, _ in STATE["av_open"]}, {"r"})
 
     def test_old_transcripts_still_load(self):
         old = {"tool": "hebrew-transcribe 1.2.0", "source": {"file": "a.m4a", "sha256": "x", "bytes": 1,

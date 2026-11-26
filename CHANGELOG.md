@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.1 (2026-11-26)
+
+- **Fix: no file could be transcribed with PyAV 19**, which Python 3.12 and newer
+  install by default. faster-whisper 1.2.1 opens files with an argument that PyAV 19
+  removed ("open() got an unexpected keyword argument 'metadata_errors'"). This package
+  now decodes audio and video itself, in the same way, with PyAV 18 or 19. Earlier
+  versions installed on Python 3.12 or newer fail the same way: update.
+- `main` is protected: changes arrive through pull requests that pass the tests and
+  are approved by the code owner (see "Branch rules" in the README).
+- The test workflow prints the versions of the audio stack it tested.
+
 ## 1.3.0 (2026-11-26)
 
 - **Conversations in several languages.** With `--language auto` or a list such as
