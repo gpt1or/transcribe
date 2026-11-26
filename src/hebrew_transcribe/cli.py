@@ -19,11 +19,12 @@ from .core import (
     DiarizationUnavailable,
     Diarizer,
     ModelDownloadError,
+    NoAudioError,
     Segment,
     Transcriber,
     clock,
     cuda_available,
-    find_audio,
+    find_media,
     find_hf_token,
     model_for,
     parse_language,
@@ -187,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
             print(t("model_ready", model=name))
         return 0
 
-    files = find_audio(args.inputs, args.recursive)
+    files = find_media(args.inputs, args.recursive)
     if not files:
         print(t("nothing"))
         return 1
@@ -256,6 +257,10 @@ def main(argv: list[str] | None = None) -> int:
                 save(result, out_dir, name)
             except KeyboardInterrupt:
                 raise
+            except NoAudioError as e:  # e.g. a video without sound
+                failures += 1
+                print(t("file_skipped", error=e) + "\n")
+                continue
             except Exception as e:
                 failures += 1
                 print(t("file_failed", kind=type(e).__name__, error=e) + "\n")

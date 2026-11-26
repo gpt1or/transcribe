@@ -157,8 +157,8 @@ say "== 5/5  Speech models (one-time download, ~1.6 GB each) ==" \
 
 echo ""
 echo "=================================================================="
-say " Installed. Transcribe with:   bash run.sh <audio files or folders>" \
-    " Установлено. Запуск:   bash run.sh <аудиофайлы или папки>"
+say " Installed. Transcribe with:   bash run.sh <audio or video files, or folders>" \
+    " Установлено. Запуск:   bash run.sh <аудио- или видеофайлы, или папки>"
 say " Read the Disclaimer in README.md before use." \
     " Перед использованием прочтите отказ от ответственности в README.md."
 echo "=================================================================="

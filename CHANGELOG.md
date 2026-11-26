@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.3.0 (2026-11-26)
+
+- **Conversations in several languages.** With `--language auto` or a list such as
+  `--language he,ru`, a recording that switches language is split where the language
+  changes, and each stretch is transcribed with its own language's model (Hebrew with
+  ivrit.ai's, Russian with Podlodka). The `.txt` marks each line's language (`[ru]`)
+  and gives each language's share in its header; the `.json` has `languages`, `models`
+  and a `language` per segment; `INDEX.md` shows the shares. With `--diarize`, a change
+  of language between speakers is found even when they do not pause.
+- **Language detection over the whole recording.** It now checks a sample of speech
+  spread over the whole file, instead of its first 90 seconds, and every part of it only
+  when it hears more than one language. Laughter and single words do not split a
+  conversation.
+- **Video.** Video files (mp4, mov, mkv, webm, avi and more) are transcribed from their
+  sound track, and folders include them. The `.srt` file works as subtitles for the
+  video. A file without sound is skipped with a clear message instead of an error.
+- Python: `load_audio()`, `find_media()` (`find_audio()` still works),
+  `Transcriber.plan_languages()`, `LanguagePlan`, `NoAudioError`, `AUDIO_EXTENSIONS`,
+  `VIDEO_EXTENSIONS`, `MEDIA_EXTENSIONS`; `Segment.language`, `Transcript.languages`,
+  `Transcript.models` and `Transcript.mixed`. Transcripts from earlier versions still load.
+- The Disclaimer (in English, Hebrew and Russian) now covers video files, copyright in
+  recordings and subtitles, and passages recognised in the wrong language.
+- Tests decode short audio and video clips with the real PyAV and faster-whisper.
+
 ## 1.2.0 (2026-11-26)
 
 - **Russian.** `--language ru` uses Ivan Bondarenko's Russian fine-tune of Whisper

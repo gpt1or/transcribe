@@ -16,9 +16,11 @@ UI_LANGUAGES = ("en", "ru")
 MESSAGES: dict[str, dict[str, str]] = {
     "en": {
         # finding inputs
-        "no_audio": "  ! no audio files in {path}{hint}",
+        "no_audio": "  ! no audio or video files in {path}{hint}",
         "no_audio_hint": " (add --recursive for sub-folders)",
         "not_found": "  x not found: {path}",
+        "no_audio_track": "{file} has no audio track",
+        "empty_audio": "{file}: the audio track is empty",
         # models
         "downloading": "Downloading {model} (one time; resumes if interrupted)...",
         "attempt_failed": "  attempt {attempt}/{attempts} failed: {error}",
@@ -32,6 +34,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "detected": "   language: {language} ({percent}%) → {model}",
         "uncertain": "   ! the language is uncertain; check the result, or set it with --language",
         "no_speech_detected": "   ! no speech found for language detection; assuming {language}",
+        "mixed": "   languages: {languages} (mixed conversation, {parts} parts)",
+        "checking_parts": "   more than one language heard; checking every part of the recording...",
+        "scan_failed": "   ! could not split the audio for language detection ({kind}); "
+                       "using one language for the whole file",
         # speaker labels
         "separating": "   separating speakers...",
         "separation_failed": "   ! speaker separation failed ({kind}); continuing without it",
@@ -71,13 +77,15 @@ MESSAGES: dict[str, dict[str, str]] = {
         "already_done": "- {name}: already transcribed (--force to redo)",
         "file_header": "[{index}/{total}] {name}",
         "file_failed": "   x failed: {kind}: {error}",
+        "file_skipped": "   x {error}",
         "file_done": "   done: {name}.txt  ({segments} segments, {flagged} marked {mark}, {minutes} min)",
         "finished": "Finished. {count} transcript(s) in {path}",
         "check_marks": "Check every transcript against the audio, starting with the {mark} marks.",
         "stopped": "Stopped. Run the same command again to continue where it left off.",
         "error_prefix": "x {error}",
         # command-line help
-        "cli.description": "Private, local Hebrew and Russian speech-to-text with optional speaker labels.",
+        "cli.description": "Private, local Hebrew and Russian speech-to-text for audio and video, "
+                           "with optional speaker labels.",
         "cli.epilog": "Read the Disclaimer in the README before use. "
                       "Verify every transcript against the original audio.",
         "cli.usage": "usage: ",
@@ -90,8 +98,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "help.model": "'turbo' (default), 'full' (larger and slower), or any faster-whisper model: "
                       "a Hugging Face id or a local folder",
         "help.language": "language of the recordings: he (default), ru, any other language code, "
-                         "'auto' to detect it for each file, or a list such as 'he,ru' to choose "
-                         "among those",
+                         "'auto' to detect it (also when a conversation mixes languages), or a list "
+                         "such as 'he,ru' to choose among those",
         "help.prompt": "names and terms that occur in the audio, to help recognise them",
         "help.diarize": "label speakers (needs the [diarize] extra and a free Hugging Face token, "
                         "see README)",
@@ -122,6 +130,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "txt.created": "Created",
         "txt.created_value": "{created}, locally, by {tool}",
         "txt.not_separated": "not separated",
+        "txt.mixed": "mixed",
         "txt.warning": "Machine-generated. It may contain wrong, missing or invented words\n"
                        "and wrong speaker labels. {mark} = low confidence. Verify against the\n"
                        "original audio before relying on any part of it.",
@@ -137,9 +146,11 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     "ru": {
         # поиск файлов
-        "no_audio": "  ! в {path} нет аудиофайлов{hint}",
+        "no_audio": "  ! в {path} нет аудио- или видеофайлов{hint}",
         "no_audio_hint": " (для вложенных папок добавьте --recursive)",
         "not_found": "  x не найдено: {path}",
+        "no_audio_track": "в файле {file} нет звуковой дорожки",
+        "empty_audio": "{file}: звуковая дорожка пуста",
         # модели
         "downloading": "Скачивание {model} (однократно; при обрыве продолжится с того же места)...",
         "attempt_failed": "  попытка {attempt}/{attempts} не удалась: {error}",
@@ -153,6 +164,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "detected": "   язык: {language} ({percent}%) → {model}",
         "uncertain": "   ! язык определён неуверенно; проверьте результат или задайте язык через --language",
         "no_speech_detected": "   ! для определения языка не найдено речи; принят язык: {language}",
+        "mixed": "   языки: {languages} (разговор на нескольких языках, частей: {parts})",
+        "checking_parts": "   слышно больше одного языка; проверяются все части записи...",
+        "scan_failed": "   ! не удалось разбить запись для определения языка ({kind}); "
+                       "для всего файла используется один язык",
         # разделение по говорящим
         "separating": "   разделение по говорящим...",
         "separation_failed": "   ! разделить по говорящим не удалось ({kind}); продолжаем без этого",
@@ -197,14 +212,15 @@ MESSAGES: dict[str, dict[str, str]] = {
         "already_done": "- {name}: уже расшифровано (--force — расшифровать заново)",
         "file_header": "[{index}/{total}] {name}",
         "file_failed": "   x ошибка: {kind}: {error}",
+        "file_skipped": "   x {error}",
         "file_done": "   готово: {name}.txt  (сегментов: {segments}, отмечено {mark}: {flagged}, {minutes} мин)",
         "finished": "Завершено. Расшифровок: {count}, папка: {path}",
         "check_marks": "Сверьте каждую расшифровку с записью, начиная с отметок {mark}.",
         "stopped": "Остановлено. Запустите ту же команду снова, чтобы продолжить с того же места.",
         "error_prefix": "x {error}",
         # справка командной строки
-        "cli.description": "Приватная локальная расшифровка речи на иврите и русском, "
-                           "с разделением по говорящим по желанию.",
+        "cli.description": "Приватная локальная расшифровка речи на иврите и русском из аудио "
+                           "и видео, с разделением по говорящим по желанию.",
         "cli.epilog": "Перед использованием прочтите отказ от ответственности в README. "
                       "Сверяйте каждую расшифровку с исходной записью.",
         "cli.usage": "использование: ",
@@ -217,8 +233,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "help.model": "'turbo' (по умолчанию), 'full' (больше и медленнее) или любая модель "
                       "faster-whisper: id на Hugging Face или локальная папка",
         "help.language": "язык записей: he (по умолчанию), ru, любой другой код языка, "
-                         "'auto' — определять для каждого файла, или список, например 'he,ru', — "
-                         "выбирать из них",
+                         "'auto' — определять автоматически (в том числе когда в разговоре "
+                         "несколько языков), или список, например 'he,ru', — выбирать из них",
         "help.prompt": "имена и термины, которые встречаются в записи, — для лучшего распознавания",
         "help.diarize": "разделять по говорящим (нужны пакеты [diarize] и бесплатный токен "
                         "Hugging Face, см. README)",
@@ -249,6 +265,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "txt.created": "Создано",
         "txt.created_value": "{created}, локально, программой {tool}",
         "txt.not_separated": "не разделены",
+        "txt.mixed": "несколько языков",
         "txt.warning": "Создано автоматически. Возможны неверные, пропущенные или выдуманные\n"
                        "слова и ошибки в определении говорящих. {mark} — низкая уверенность.\n"
                        "Сверяйте с исходной записью, прежде чем на что-либо опираться.",

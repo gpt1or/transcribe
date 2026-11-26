@@ -23,12 +23,28 @@ def write_atomic(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+def _shares(tr: Transcript) -> str:
+    """'he 70%, ru 30%' for a conversation in several languages."""
+    ordered = sorted((tr.languages or {}).items(), key=lambda kv: -kv[1])
+    return ", ".join(f"{code} {round(share * 100)}%" for code, share in ordered)
+
+
 def language_text(tr: Transcript) -> str:
-    """'he', or 'auto → ru (97%)' when the language was detected."""
+    """'he'; 'auto → ru (97%)' when the language was detected; or
+    'auto → he 70%, ru 30% (mixed)' for a conversation in several languages."""
     detected = tr.detected_language
+    if tr.mixed:
+        return f"{tr.language} → {_shares(tr)} ({t('txt.mixed')})"
     if tr.language_probability is None or not detected or tr.language == detected:
         return tr.language or detected or "?"
     return f"{tr.language} → {detected} ({round(tr.language_probability * 100)}%)"
+
+
+def model_text(tr: Transcript) -> str:
+    """The model, or 'he: …; ru: …' when each language had its own."""
+    if tr.models and len(tr.models) > 1:
+        return "; ".join(f"{code}: {name}" for code, name in tr.models.items())
+    return tr.model
 
 
 def render_txt(tr: Transcript) -> str:
@@ -37,7 +53,7 @@ def render_txt(tr: Transcript) -> str:
         (t("txt.source"), tr.file),
         (t("txt.sha256"), tr.sha256),
         (t("txt.duration"), clock(tr.duration)),
-        (t("txt.model"), tr.model),
+        (t("txt.model"), model_text(tr)),
         (t("txt.language"), language_text(tr)),
         (t("txt.speakers"), tr.diarization or t("txt.not_separated")),
         (t("txt.created"), t("txt.created_value", created=tr.created, tool=tr.tool)),
@@ -56,7 +72,8 @@ def render_txt(tr: Transcript) -> str:
             body.append(f"{speaker_name(s.speaker)}:")
             previous = s.speaker
         mark = f" {UNSURE}" if s.low_confidence else ""
-        body.append(f"  [{clock(s.start)}] {s.text}{mark}")
+        tag = f"[{s.language}] " if tr.mixed and s.language else ""
+        body.append(f"  [{clock(s.start)}] {tag}{s.text}{mark}")
     footer = [line, t("txt.end", segments=len(tr.segments), flagged=tr.flagged, mark=UNSURE), ""]
     return "\n".join(header + [""] + body + [""] + footer)
 
@@ -106,6 +123,8 @@ def _md_cell(text: object) -> str:
 
 
 def _index_language(tr: Transcript) -> str:
+    if tr.mixed:
+        return _shares(tr)
     code = tr.detected_language or tr.language or "?"
     if tr.language_probability is None:
         return code
@@ -145,7 +164,7 @@ def write_index(out_dir: str | os.PathLike) -> int:
         md.append(
             f"| {_md_cell(tr.file or '?')} | {clock(tr.duration)} | {len(tr.segments)} | {tr.flagged} "
             f"| {t('index.yes') if tr.diarization else '-'} | {_md_cell(_index_language(tr))} "
-            f"| {_md_cell(tr.model or '?')} | `{txt_name}` |"
+            f"| {_md_cell(model_text(tr) or '?')} | `{txt_name}` |"
         )
     md += ["", t("index.note", mark=UNSURE), ""]
     write_atomic(folder / "INDEX.md", "\n".join(md))
