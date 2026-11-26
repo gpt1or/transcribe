@@ -1,26 +1,29 @@
 # transcribe
 
-**Private, local Hebrew speech-to-text, with optional speaker labels.** Python package: `hebrew-transcribe`.
+**Private, local Hebrew and Russian speech-to-text, with optional speaker labels.** Python package: `hebrew-transcribe`.
 
 Turn recordings (phone calls, meetings, voice notes, videos) into timestamped text on your own computer, from the command line or from Python. After a one-time model download it works offline, and it never sends your audio anywhere.
 
+По-русски: [краткое описание](#russian) и [отказ от ответственности](#disclaimer-ru).
+
 > [!IMPORTANT]
-> Read the **[Disclaimer](#disclaimer)** before using this software ([Hebrew version below](#disclaimer-he)). You alone are responsible for having the legal right to process each recording, and for checking every transcript against the original audio.
+> Read the **[Disclaimer](#disclaimer)** before using this software ([Hebrew](#disclaimer-he), [Russian](#disclaimer-ru)). You alone are responsible for having the legal right to process each recording, and for checking every transcript against the original audio.
 
 ## Features
 
-- **Tuned for Hebrew.** Uses [ivrit.ai](https://www.ivrit.ai)'s Hebrew fine-tune of OpenAI's Whisper large-v3-turbo, run locally with [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Other languages work with `--language` and a suitable `--model`.
+- **Hebrew and Russian.** Hebrew uses [ivrit.ai](https://www.ivrit.ai)'s fine-tune of OpenAI's Whisper; Russian uses Ivan Bondarenko's [Podlodka](https://huggingface.co/bond005/whisper-podlodka-turbo) fine-tune; `--language auto` picks the right one for each file. Other languages use OpenAI's multilingual Whisper. All run locally with [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
 - **Three files per recording.** `.txt` (readable, with timestamps), `.srt` (subtitles, for checking the text against the audio in a player) and `.json` (segments with confidence scores), plus an `INDEX.md` of everything transcribed so far.
 - **Doubtful passages are marked.** Low-confidence segments get `⟨?⟩`, so a human checks them first.
 - **Optional speaker labels.** `--diarize` separates voices into "Speaker 1", "Speaker 2" with [pyannote](https://github.com/pyannote/pyannote-audio). Off by default.
 - **Source files are never touched.** They are opened read-only, never converted or moved. Each transcript records the SHA-256 of its source file, so it can be matched to the exact file it came from.
 - **Resumable.** Stop with Ctrl-C at any time; run the same command again and it continues.
+- **Messages in English or Russian.** `--ui-language ru` translates messages, help and transcript headers.
 - **A command and a library.** `transcribe` on the command line, `from hebrew_transcribe import Transcriber` in Python.
 - **Telemetry off.** The usage metrics of the underlying libraries are disabled.
 
 ## Install
 
-Needs Python 3.10 or newer and about 3 GB of free disk space. The speech model (about 1.6 GB) is downloaded the first time you transcribe.
+Needs Python 3.10 or newer and about 3 GB of free disk space per language. Each model (about 1.6 GB) is downloaded the first time it is needed.
 
 **As a command-line tool**, with [pipx](https://pipx.pypa.io), which keeps it in its own environment:
 
@@ -39,12 +42,12 @@ pip install "hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git"
 
 ```text
 # requirements.txt
-hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.1.0
+hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.2.0
 ```
 
 ```toml
 # pyproject.toml
-dependencies = ["hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.1.0"]
+dependencies = ["hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.2.0"]
 ```
 
 **From a clone, without installing anything system-wide** (macOS / Linux):
@@ -62,10 +65,13 @@ The program is available as `transcribe`, as `hebrew-transcribe` (the same progr
 ## Command line
 
 ```bash
-transcribe call.m4a                               # one file
+transcribe call.m4a                               # one file, in Hebrew
 transcribe ~/Recordings --out ~/Transcripts       # a whole folder, custom output folder
+transcribe ~/Recordings --language ru             # Russian recordings
+transcribe ~/Recordings --language auto           # detect Hebrew, Russian or another language per file
+transcribe ~/Recordings --language he,ru          # detect, but choose only between Hebrew and Russian
 transcribe ~/Recordings --diarize --speakers 2    # phone calls, with speaker labels
-transcribe lecture.mp4 --model full               # slower model, sometimes more accurate
+transcribe ~/Recordings --ui-language ru          # messages and transcript headers in Russian
 transcribe ~/Recordings --prompt "רונית, יוסי, משכנתא" # names and terms that occur in the audio
 ```
 
@@ -84,8 +90,8 @@ Speaker 2:
 | `PATH ...` | audio or video files and/or folders: m4a, mp3, wav, aac, flac, ogg, opus, amr, mp4, mov, mkv and more |
 | `-o`, `--out DIR` | output folder (default `./transcripts`) |
 | `-r`, `--recursive` | also look inside sub-folders |
-| `-m`, `--model` | `turbo` (default), `full` (about 3× slower, sometimes more accurate), or any faster-whisper model: a Hugging Face id or a local folder |
-| `-l`, `--language` | language code (default `he`), or `auto` to detect it |
+| `-l`, `--language` | `he` (default), `ru`, any other language code, `auto` to detect it for each file, or a list such as `he,ru` to choose among those |
+| `-m`, `--model` | `turbo` (default) or `full` (larger and slower), which pick the model for the language (see [Languages and models](#languages-and-models)); or any faster-whisper model: a Hugging Face id or a local folder |
 | `--prompt TEXT` | names and terms that occur in the audio, to help recognise them |
 | `--diarize` | label speakers (see below) |
 | `--speakers N` | number of speakers, if known (default: detect) |
@@ -93,14 +99,29 @@ Speaker 2:
 | `--device` | `auto` (default), `cpu` or `cuda` |
 | `-f`, `--force` | transcribe again files that already have a transcript |
 | `-q`, `--quiet` | do not print the text while working |
-| `--download-only` | download the model and exit |
+| `--download-only` | download every model the chosen language needs, and exit |
+| `--ui-language` | `en` (default) or `ru`: the language of messages, help and transcript headers (or set `TRANSCRIBE_UI_LANGUAGE`) |
+
+## Languages and models
+
+| Language | `turbo` (default) | `full` |
+|---|---|---|
+| Hebrew (`he`, the default) | [ivrit-ai/whisper-large-v3-turbo-ct2](https://huggingface.co/ivrit-ai/whisper-large-v3-turbo-ct2) | [ivrit-ai/whisper-large-v3-ct2](https://huggingface.co/ivrit-ai/whisper-large-v3-ct2) |
+| Russian (`ru`) | [bond005/whisper-podlodka-turbo-ct2](https://huggingface.co/bond005/whisper-podlodka-turbo-ct2) | [Systran/faster-whisper-large-v3](https://huggingface.co/Systran/faster-whisper-large-v3) |
+| Any other language | [dropbox-dash/faster-whisper-large-v3-turbo](https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo) | [Systran/faster-whisper-large-v3](https://huggingface.co/Systran/faster-whisper-large-v3) |
+
+- **Russian** uses Ivan Bondarenko's Podlodka fine-tune of Whisper large-v3-turbo. For Russian, `full` is OpenAI's original multilingual large-v3: it is not tuned for Russian and is usually less accurate than the default, but worth a try when the default struggles with a recording.
+- **`--language auto`** detects each file's language from up to its first 90 seconds of speech, with OpenAI's multilingual turbo model, and then uses the model for that language. **`--language he,ru`** works the same way but chooses only between the listed languages, which helps when, for example, Russian speech is mistaken for Ukrainian.
+- **One language per file.** In a recording that switches language, the language that dominates its first 90 seconds of speech is used for the whole file.
+- Each model is downloaded the first time it is needed. `auto` can use three models (detection, Hebrew and Russian), so it needs more disk space and memory; `--download-only --language auto` fetches all three in advance.
+- `--prompt` works best with a fixed `--language`: a Hebrew prompt does not help a Russian recording.
 
 ## Python
 
 ```python
 from hebrew_transcribe import Transcriber, write_index
 
-transcriber = Transcriber()                   # loads the model (downloads it the first time)
+transcriber = Transcriber()                   # Hebrew; loads the model (downloads it the first time)
 result = transcriber.transcribe("call.m4a")
 
 print(result.text)                            # the whole text
@@ -111,17 +132,20 @@ result.save("transcripts")                    # call.txt, call.srt and call.json
 write_index("transcripts")                    # INDEX.md of the folder
 ```
 
-With speaker labels (needs the `diarize` extra and a Hugging Face token, see below):
+Other languages and speaker labels:
 
 ```python
-transcriber = Transcriber(diarize=True)       # token from HF_TOKEN, `hf auth login`, or hf_token="..."
-result = transcriber.transcribe("call.m4a", speakers=2)
+Transcriber(language="ru")                    # Russian
+Transcriber(language="auto")                  # detect each file's language; or language="he,ru"
+Transcriber(diarize=True)                     # speaker labels: needs the diarize extra and a token (see below)
+transcriber.transcribe("call.m4a", speakers=2)
 ```
 
-- `Transcriber(model="turbo", language="he", device="auto", prompt=None, flag_below=-0.55, diarize=False, ...)` loads the models once; reuse it for many files. `model` also accepts `"full"`, a Hugging Face id or a local folder; `language="auto"` detects the language.
-- `transcribe(path, ..., speakers=None, prompt=None, on_segment=None)` returns a `Transcript` (`.segments`, `.text`, `.sha256`, `.duration`, ...). `on_segment` is called with each segment as soon as it is ready.
-- `hebrew_transcribe.transcribe("call.m4a")` is a one-off shortcut; `Transcript.load("call.json")` reads a saved transcript back.
-- Errors are raised as `ModelDownloadError` and `DiarizationUnavailable`. Progress goes to the `hebrew_transcribe` logger; the library never prints.
+- `Transcriber(model="turbo", language="he", device="auto", prompt=None, flag_below=-0.55, diarize=False, ...)` loads models when first needed and keeps them; reuse it for many files. `model` also accepts `"full"`, a Hugging Face id or a local folder.
+- `transcribe(path, ..., speakers=None, prompt=None, on_segment=None)` returns a `Transcript` (`.segments`, `.text`, `.sha256`, `.duration`, `.model`, `.detected_language`, `.language_probability`, ...). `on_segment` is called with each segment as soon as it is ready.
+- `hebrew_transcribe.transcribe("call.m4a", language="ru")` is a one-off shortcut; `Transcript.load("call.json")` reads a saved transcript back.
+- `LANGUAGE_MODELS`, `model_for(language, size)` and `required_models(model, language)` tell which models a setting uses, for example to download them in advance with `resolve_model()`.
+- Errors are raised as `ValueError` (unknown language), `ModelDownloadError` and `DiarizationUnavailable`. Progress goes to the `hebrew_transcribe` logger; the library never prints. `set_ui_language("ru")` switches those messages and the transcript headers to Russian.
 - The library does not change process-wide settings, apart from the two telemetry defaults described under [Privacy](#privacy). Behind a TLS-inspecting corporate proxy, call `hebrew_transcribe.use_system_certificates()` once at startup.
 
 ## Speaker labels (optional)
@@ -143,7 +167,7 @@ The speaker model is free but gated on Hugging Face, so a free access token is n
 
 Then add `--diarize`. The first time, the command asks for the token; typing is hidden. It is saved where `hf auth login` saves it (`~/.cache/huggingface/token`), readable only by your user account; `hf auth logout` removes it. You can also set the `HF_TOKEN` environment variable instead.
 
-Speaker labels separate voices; they do not identify anyone. Matching "Speaker 1" to a real person is up to you, and labels can be wrong, especially when people talk over each other.
+Speaker labels separate voices; they do not identify anyone. Matching "Speaker 1" to a real person is up to you, and labels can be wrong, especially when people talk over each other. With `--ui-language ru` the labels read "Спикер 1" in the `.txt` and `.srt` files; the `.json` data always says "Speaker 1".
 
 ## Why these settings
 
@@ -153,10 +177,28 @@ Speaker labels separate voices; they do not identify anyone. Matching "Speaker 1
 - **`--prompt`.** Telling Whisper which names and terms to expect noticeably improves how they are written.
 - **Read-only sources and SHA-256.** A transcript can always be tied to an unmodified original.
 
+<a name="russian"></a>
+
+## По-русски
+
+`transcribe` расшифровывает записи на иврите и на русском прямо на вашем компьютере: после однократного скачивания моделей программа работает без интернета и никуда не отправляет звук.
+
+```bash
+pipx install "git+https://github.com/gpt1or/transcribe.git"
+transcribe ~/Записи --language ru --ui-language ru     # русские записи, сообщения на русском
+transcribe ~/Записи --language auto --ui-language ru   # иврит или русский — для каждого файла отдельно
+transcribe ~/Записи --language he,ru --diarize         # выбор только между ивритом и русским, с разделением по говорящим
+```
+
+- Для русского используется модель Ивана Бондаренко [whisper-podlodka-turbo](https://huggingface.co/bond005/whisper-podlodka-turbo), дообученная Whisper large-v3-turbo; для иврита — модели [ivrit.ai](https://www.ivrit.ai).
+- Чтобы сообщения всегда были на русском, задайте переменную `TRANSCRIBE_UI_LANGUAGE=ru`. Из клона репозитория: `bash run.sh ~/Записи --language ru --ui-language ru`.
+- Машинная расшифровка ошибается: сверяйте каждую расшифровку с записью, начиная с мест, отмеченных `⟨?⟩`.
+- Перед использованием прочтите [отказ от ответственности](#disclaimer-ru).
+
 ## Privacy
 
 - Audio, transcripts and your token stay on your computer. This project has no server, and the author receives nothing.
-- The network is used only to install packages (from PyPI) and to download models (from Hugging Face). Once downloaded, the speech model is loaded from disk without contacting the network; the optional speaker model may still check Hugging Face for updates (metadata only). To block all network access, set `HF_HUB_OFFLINE=1`.
+- The network is used only to install packages (from PyPI) and to download models (from Hugging Face). Once downloaded, the speech models are loaded from disk without contacting the network; the optional speaker model may still check Hugging Face for updates (metadata only). To block all network access, set `HF_HUB_OFFLINE=1`.
 - Telemetry is off. Importing the package sets `PYANNOTE_METRICS_ENABLED=0` (pyannote.audio's usage metrics) and `HF_HUB_DISABLE_TELEMETRY=1`, unless you have set them yourself.
 - The command-line tool also trusts the operating system's certificate store and skips Hugging Face's Xet download CDN (`HF_HUB_DISABLE_XET=1`), which helps behind corporate proxies. The library leaves those choices to you.
 - In a clone, `transcripts/`, common audio formats, tokens and certificate files are listed in `.gitignore`, so they are not committed by accident.
@@ -169,9 +211,10 @@ Speaker labels separate voices; they do not identify anyone. Matching "Speaker 1
 | `403 Forbidden` from a `cdn.hf.co` address | The network blocks Hugging Face's Xet CDN. Set `HF_HUB_DISABLE_XET=1` (the command-line tool does this by default). |
 | The download keeps failing | Disconnect from a work VPN or switch network (a phone hotspot works) and run again. It resumes, and internet is needed only once. |
 | `python3: command not found` | macOS: `xcode-select --install` or `brew install python`. Linux: install `python3` and `python3-venv`. |
+| The wrong language is detected | Set it: `--language ru` or `--language he`. Or limit the choice: `--language he,ru`. |
 | Speaker labels fail to load | Install the extra packages and accept the model terms (see above) with the account that owns the token. Transcription works without them. |
 | Text repeats in a loop | Run that file again with `--model full --force`. |
-| Disk space | Models are stored in `~/.cache/huggingface`: about 1.6 GB for `turbo`, about 3 GB for `full`. |
+| Disk space | Models are stored in `~/.cache/huggingface`: about 1.6 GB per `turbo` model, about 3 GB per `full` model. |
 | It is slow | faster-whisper runs on the CPU (also on Apple Silicon) unless an NVIDIA GPU is available. `turbo`, the default, is the fast model; close heavy applications. |
 
 ## Development
@@ -182,6 +225,8 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[diarize]"
 .venv/bin/python -m unittest discover -s tests -v    # offline: the models are replaced by fakes
 ```
 
+Messages live in `src/hebrew_transcribe/i18n.py`; a test checks that every English message has a Russian translation with the same placeholders.
+
 To release: update `src/hebrew_transcribe/_version.py` and `CHANGELOG.md`, push, then publish a GitHub release tagged `vX.Y.Z`. The `publish` workflow uploads it to PyPI with trusted publishing (see the comment at the top of `.github/workflows/publish.yml` for the one-time setup).
 
 ## Third-party components
@@ -190,8 +235,11 @@ To release: update `src/hebrew_transcribe/_version.py` and `CHANGELOG.md`, push,
 |---|---|---|
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | transcription engine | MIT |
 | [CTranslate2](https://github.com/OpenNMT/CTranslate2) | model inference | MIT |
-| [ivrit-ai/whisper-large-v3-turbo-ct2](https://huggingface.co/ivrit-ai/whisper-large-v3-turbo-ct2) | default speech model | Apache-2.0 |
-| [ivrit-ai/whisper-large-v3-ct2](https://huggingface.co/ivrit-ai/whisper-large-v3-ct2) | `--model full` | Apache-2.0 |
+| [ivrit-ai/whisper-large-v3-turbo-ct2](https://huggingface.co/ivrit-ai/whisper-large-v3-turbo-ct2) | Hebrew speech model | Apache-2.0 |
+| [ivrit-ai/whisper-large-v3-ct2](https://huggingface.co/ivrit-ai/whisper-large-v3-ct2) | Hebrew, `--model full` | Apache-2.0 |
+| [bond005/whisper-podlodka-turbo-ct2](https://huggingface.co/bond005/whisper-podlodka-turbo-ct2) | Russian speech model | Apache-2.0 |
+| [dropbox-dash/faster-whisper-large-v3-turbo](https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo) | language detection; other languages | MIT |
+| [Systran/faster-whisper-large-v3](https://huggingface.co/Systran/faster-whisper-large-v3) | `--model full` for Russian and other languages | MIT |
 | [pyannote.audio](https://github.com/pyannote/pyannote-audio) | speaker labels (optional) | MIT |
 | [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) | speaker model (optional, gated) | CC-BY-4.0 |
 | [huggingface_hub](https://github.com/huggingface/huggingface_hub) | model downloads | Apache-2.0 |
@@ -211,7 +259,7 @@ This is a free, non-commercial, open-source project. It is provided **"AS IS", w
 4. **Not legal advice.** Nothing in this repository is legal or other professional advice. If in doubt, consult a lawyer where you live.
 5. **Third-party models and software.** The speech and speaker models are downloaded by you from Hugging Face, and the Python packages from PyPI. They are not part of this repository, are not distributed by the author, and are governed by their own licenses and terms, which you must accept and follow (see [Third-party components](#third-party-components)).
 6. **No data collection.** The software runs on your own computer. The author operates no server and never receives, stores or has access to your audio, transcripts or access tokens.
-7. **No affiliation.** This project is independent. It is not affiliated with, endorsed or sponsored by OpenAI, ivrit.ai, pyannote, Hugging Face or any other organisation; their names are used only to identify their components.
+7. **No affiliation.** This project is independent. It is not affiliated with, endorsed or sponsored by OpenAI, ivrit.ai, pyannote, Hugging Face, the authors of the models it uses, or any other organisation; their names are used only to identify their components.
 8. **No misuse.** Do not use this software for unlawful interception or eavesdropping, covert surveillance, stalking or harassment, or to process recordings obtained unlawfully.
 9. **No support obligation.** The author has no obligation to provide support, maintenance, updates or fixes.
 10. **Limitation of liability.** To the fullest extent permitted by applicable law, the author and contributors are not liable for any direct, indirect, incidental, special, consequential or punitive damages, or for any loss of data, profits or reputation, or for any claims, arising out of or in connection with the use of, misuse of, or inability to use this software or its output, including claims by third parties whose voices or data were processed. You use the software entirely at your own risk, and you agree to indemnify and hold harmless the author and contributors against any claim arising from your use of the software in breach of the law or of this notice.
@@ -232,7 +280,7 @@ This is a free, non-commercial, open-source project. It is provided **"AS IS", w
 4. **אין זה ייעוץ משפטי.** דבר במאגר זה אינו ייעוץ משפטי או מקצועי אחר. במקרה של ספק יש להיוועץ בעורך דין.
 5. **מודלים ותוכנות של צד שלישי.** מודלי הדיבור והדוברים מורדים על ידך מ-Hugging Face, וחבילות ה-Python מ-PyPI. הם אינם חלק ממאגר זה, אינם מופצים על ידי המפתח, וחלים עליהם הרישיונות והתנאים שלהם, שעליך לקבל ולקיים.
 6. **אין איסוף מידע.** התוכנה פועלת על המחשב שלך. למפתח אין שרת, והוא אינו מקבל, אינו שומר ואין לו גישה להקלטות, לתמלולים או לטוקנים שלך.
-7. **אין זיקה לגופים אחרים.** הפרויקט עצמאי, ואינו קשור ל-OpenAI, ל-ivrit.ai, ל-pyannote, ל-Hugging Face או לכל גוף אחר, ואינו נתמך או ממומן על ידם. שמותיהם משמשים רק לזיהוי הרכיבים.
+7. **אין זיקה לגופים אחרים.** הפרויקט עצמאי, ואינו קשור ל-OpenAI, ל-ivrit.ai, ל-pyannote, ל-Hugging Face, ליוצרי המודלים שבהם הוא משתמש או לכל גוף אחר, ואינו נתמך או ממומן על ידם. שמותיהם משמשים רק לזיהוי הרכיבים.
 8. **אין להשתמש לרעה.** אין להשתמש בתוכנה להאזנת סתר או ליירוט שלא כדין, למעקב סמוי, לבילוש או להטרדה, או לעיבוד הקלטות שהושגו שלא כדין.
 9. **אין חובת תמיכה.** המפתח אינו מחויב לספק תמיכה, תחזוקה, עדכונים או תיקונים.
 10. **הגבלת אחריות.** במידה המרבית המותרת על פי דין, המפתח והתורמים לא יישאו באחריות לכל נזק ישיר, עקיף, מקרי, מיוחד, תוצאתי או עונשי, או לאובדן מידע, רווחים או מוניטין, או לכל תביעה, הנובעים מהשימוש בתוכנה או בפלט שלה, משימוש לרעה בהם או מאי-יכולת להשתמש בהם, לרבות תביעות של צדדים שלישיים שקולם או המידע עליהם עובדו. השימוש בתוכנה הוא על אחריותך בלבד, ואתה מסכים לשפות את המפתח והתורמים ולפטור אותם מכל תביעה הנובעת משימושך בתוכנה בניגוד לדין או להודעה זו.
@@ -240,6 +288,27 @@ This is a free, non-commercial, open-source project. It is provided **"AS IS", w
 הנוסח העברי הוא תרגום לנוחות. בכל מקרה של סתירה, יגבר הנוסח האנגלי.
 
 </div>
+
+<a name="disclaimer-ru"></a>
+
+## Отказ от ответственности и ограничение ответственности
+
+**Прочтите это до начала использования программы. Если вы не согласны с изложенным, не используйте её.**
+
+Это бесплатный некоммерческий проект с открытым исходным кодом. Программа предоставляется **«как есть» (AS IS), без каких-либо гарантий**, на условиях [лицензии MIT](LICENSE). Условия ниже дополняют эту лицензию.
+
+1. **Ответственность за записи несёте вы.** Программа ничего не записывает: она лишь обрабатывает аудиофайлы, которые вы ей передаёте. Только вы отвечаете за то, чтобы закон разрешал вам записывать, хранить, расшифровывать, сохранять и передавать каждую запись и каждую расшифровку, включая получение необходимого согласия записанных людей. Законы разных стран и штатов различаются: одни разрешают участнику разговора записывать его, другие требуют согласия всех участников, а публикация записи или её расшифровки может быть ограничена, даже если сама запись была законной.
+2. **Персональные и голосовые данные.** Записи и расшифровки обычно содержат персональные данные других людей. Необязательное разделение по говорящим (`--diarize`, по умолчанию выключено) анализирует характеристики голоса, чтобы различать говорящих, а некоторые законы особо регулируют голосовые или биометрические данные (например, Общий регламент ЕС по защите данных (GDPR) и Закон штата Иллинойс о конфиденциальности биометрической информации (BIPA)). Обрабатывая данные других людей, вы отвечаете за соблюдение применимых к вам законов о конфиденциальности и защите данных.
+3. **Точность не гарантируется.** Машинная расшифровка ошибается: неверные, пропущенные или выдуманные слова, неверные метки времени и неверное определение говорящих. Отметки `⟨?⟩` выявляют лишь часть ошибок, и неотмеченный текст тоже может быть неверным. Сверяйте каждую расшифровку с исходной записью, прежде чем на неё полагаться, особенно в юридических, медицинских, финансовых, трудовых и других важных вопросах. Результат не является заверенной расшифровкой и сам по себе не является надёжным доказательством того, что было сказано.
+4. **Это не юридическая консультация.** Ничто в этом репозитории не является юридической или иной профессиональной консультацией. В случае сомнений обратитесь к юристу в вашей стране.
+5. **Модели и программы третьих лиц.** Модели распознавания речи и разделения по говорящим вы скачиваете сами с Hugging Face, а пакеты Python — с PyPI. Они не входят в этот репозиторий, не распространяются автором и регулируются собственными лицензиями и условиями, которые вы обязаны принять и соблюдать (см. [Third-party components](#third-party-components)).
+6. **Данные не собираются.** Программа работает на вашем компьютере. У автора нет сервера, и он не получает, не хранит и не имеет доступа к вашим записям, расшифровкам или токенам доступа.
+7. **Нет связи с другими организациями.** Проект независимый. Он не связан с OpenAI, ivrit.ai, pyannote, Hugging Face, авторами используемых моделей или любой другой организацией, не одобрен и не спонсируется ими; их названия используются только для указания на их компоненты.
+8. **Недопустимое использование.** Не используйте программу для незаконного перехвата или прослушивания, скрытой слежки, преследования или травли, а также для обработки записей, полученных незаконно.
+9. **Нет обязательств по поддержке.** Автор не обязан предоставлять поддержку, сопровождение, обновления или исправления.
+10. **Ограничение ответственности.** В максимальной степени, допускаемой применимым правом, автор и участники проекта не несут ответственности за любой прямой, косвенный, случайный, особый, последующий или штрафной ущерб, за потерю данных, прибыли или репутации, а также за любые претензии, возникающие в связи с использованием, неправомерным использованием или невозможностью использования этой программы или её результатов, включая претензии третьих лиц, чьи голоса или данные были обработаны. Вы используете программу исключительно на свой риск и соглашаетесь возместить автору и участникам проекта убытки и оградить их от любых претензий, возникших в результате использования вами программы в нарушение закона или настоящего уведомления.
+
+Русский текст — перевод для удобства. В случае расхождений преимущественную силу имеет английский текст.
 
 ## License
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.0 (2026-11-26)
+
+- **Russian.** `--language ru` uses Ivan Bondarenko's Russian fine-tune of Whisper
+  large-v3-turbo (`bond005/whisper-podlodka-turbo-ct2`); with `--model full`, OpenAI's
+  multilingual large-v3. Other languages use OpenAI's multilingual models.
+- **Language per file.** `--language auto` detects each file's language and uses the
+  matching model; `--language he,ru` chooses only among the listed languages.
+  Transcripts record `detected_language` and `language_probability`, and `INDEX.md`
+  has a Language column.
+- **Russian messages.** `--ui-language ru` (or `TRANSCRIBE_UI_LANGUAGE=ru`) puts
+  messages, help, errors and the headers of `.txt`, `.srt` and `INDEX.md` in Russian,
+  including `run.sh` and `setup.sh`. The `.json` data is the same in every language.
+- **Disclaimer in Russian** in the README, plus a short Russian introduction.
+- Python: `LANGUAGE_MODELS`, `DETECTION_MODEL`, `model_for()`, `required_models()`,
+  `set_ui_language()`, `get_ui_language()`. `MODELS` still names the Hebrew models.
+- `--download-only` downloads every model the chosen language needs; `setup.sh` takes
+  `--language`.
+
 ## 1.1.0 (2026-11-10)
 
 - **Installable as a Python package, `hebrew-transcribe`**:
