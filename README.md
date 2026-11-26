@@ -44,12 +44,12 @@ pip install "hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git"
 
 ```text
 # requirements.txt
-hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.3.0
+hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.3.1
 ```
 
 ```toml
 # pyproject.toml
-dependencies = ["hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.3.0"]
+dependencies = ["hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.3.1"]
 ```
 
 **From a clone, without installing anything system-wide** (macOS / Linux):

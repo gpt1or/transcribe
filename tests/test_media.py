@@ -7,7 +7,8 @@ and an mp4 without a sound track.
 This runs in a separate Python process, because the other tests replace those
 packages with fakes, and is skipped when they are not installed. No speech
 model is needed: decoding, the voice detector and the parts of the
-faster-whisper API this package calls are checked.
+faster-whisper API this package calls are checked. CI runs it with PyAV 18
+(Python 3.10) and PyAV 19 (Python 3.13), whose av.open() differ.
 """
 from __future__ import annotations
 
@@ -22,13 +23,14 @@ MEDIA = Path(__file__).resolve().parent / "media"
 
 CHECK = r"""
 import inspect, json, sys
-import faster_whisper
+import av, faster_whisper
 from hebrew_transcribe import NoAudioError, load_audio
-from hebrew_transcribe.core import _audio_tracks, _speech_chunks
+from hebrew_transcribe.core import _open_media, _speech_chunks
 
-report = {"files": {}}
+report = {"files": {}, "av": av.__version__}
 for name in sys.argv[1:]:
-    entry = {"tracks": _audio_tracks(name)}
+    with _open_media(name) as container:
+        entry = {"tracks": len(container.streams.audio)}
     try:
         audio = load_audio(name)
         entry.update(seconds=len(audio) / 16000, dtype=str(audio.dtype),
@@ -70,7 +72,7 @@ class RealMediaTests(unittest.TestCase):
 
     def test_audio_and_video_files_decode(self):
         for name in ("tone.m4a", "tone.mp4", "tone.mov", "tone.mkv", "tone.webm"):
-            with self.subTest(file=name):
+            with self.subTest(file=name, pyav=self.report["av"]):
                 entry = self.files[name]
                 self.assertEqual(entry["tracks"], 1)
                 self.assertAlmostEqual(entry["seconds"], 1.0, delta=0.15)

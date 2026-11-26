@@ -201,29 +201,77 @@ def find_media(paths: Iterable[str | os.PathLike], recursive: bool = False) -> l
 find_audio = find_media  # the 1.x name
 
 
-def _audio_tracks(path: Path) -> int | None:
-    """How many audio tracks the file has, or None if that cannot be told."""
+def _open_media(path: str):
+    """Open an audio or video file for reading with PyAV. Up to PyAV 18, tags
+    in another encoding stop a file from opening unless metadata_errors is
+    "ignore"; PyAV 19 removed that argument and always reads tags leniently."""
+    import av
+
     try:
-        import av
-    except ImportError:
-        return None
-    try:
-        with av.open(str(path), mode="r", metadata_errors="ignore") as container:
-            return len(container.streams.audio)
-    except Exception:
-        return None  # not readable this way: let the decoder report the problem
+        return av.open(path, mode="r", metadata_errors="ignore")
+    except TypeError:  # PyAV 19 and newer
+        return av.open(path, mode="r")
+
+
+def _samples(container: Any, sampling_rate: int):
+    """The first audio track of an open container as mono float32 samples.
+    These are the steps of faster_whisper.audio.decode_audio, which cannot
+    open files with PyAV 19 (faster-whisper 1.2.1 passes metadata_errors)."""
+    import gc
+    import io
+    import itertools
+
+    import numpy as np
+    from av.audio.fifo import AudioFifo
+    from av.audio.resampler import AudioResampler
+    from av.error import InvalidDataError
+
+    def valid(frames):  # skip frames the decoder rejects
+        iterator = iter(frames)
+        while True:
+            try:
+                yield next(iterator)
+            except StopIteration:
+                return
+            except InvalidDataError:
+                continue
+
+    def grouped(frames, size=500_000):  # fewer, larger frames to resample
+        fifo = AudioFifo()
+        for frame in frames:
+            frame.pts = None  # no timestamp checks
+            fifo.write(frame)
+            if fifo.samples >= size:
+                yield fifo.read()
+        if fifo.samples > 0:
+            yield fifo.read()
+
+    resampler = AudioResampler(format="s16", layout="mono", rate=sampling_rate)
+    raw, dtype = io.BytesIO(), None
+    for frame in itertools.chain(grouped(valid(container.decode(audio=0))), [None]):
+        for out in resampler.resample(frame):  # None flushes the resampler
+            array = out.to_ndarray()
+            dtype = array.dtype
+            raw.write(array)
+    del resampler
+    gc.collect()  # PyAV frees some resampler objects only on a collection
+    audio = np.frombuffer(raw.getbuffer(), dtype=dtype or np.int16)
+    return audio.astype(np.float32) / 32768.0
+
+
+def _decode(path: str, sampling_rate: int = SAMPLE_RATE):
+    with _open_media(path) as container:
+        if not container.streams.audio:
+            raise NoAudioError(t("no_audio_track", file=Path(path).name))
+        return _samples(container, sampling_rate)
 
 
 def load_audio(path: str | os.PathLike):
-    """The sound of an audio or video file as 16 kHz mono samples. For a video
-    with several audio tracks, the first one. The file is only read.
+    """The sound of an audio or video file as 16 kHz mono float32 samples. For
+    a video with several audio tracks, the first one. The file is only read.
     Raises NoAudioError for a file without sound."""
-    from faster_whisper.audio import decode_audio
-
     src = Path(path).expanduser()
-    if _audio_tracks(src) == 0:
-        raise NoAudioError(t("no_audio_track", file=src.name))
-    audio = decode_audio(str(src), sampling_rate=SAMPLE_RATE)
+    audio = _decode(str(src))
     if len(audio) == 0:
         raise NoAudioError(t("empty_audio", file=src.name))
     return audio
