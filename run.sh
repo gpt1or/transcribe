@@ -4,10 +4,11 @@
 #  Installs the package into .venv on the first run (see setup.sh), then runs
 #  it with the arguments given here.
 #
-#    bash run.sh ~/Recordings                     every audio file in a folder
+#    bash run.sh ~/Recordings                     every audio and video file in a folder
 #    bash run.sh call.m4a --diarize --speakers 2  one file, with speaker labels
 #    bash run.sh ~/Recordings --language ru       Russian recordings
-#    bash run.sh ~/Recordings --language auto     Hebrew or Russian, per file
+#    bash run.sh ~/Recordings --language auto     Hebrew, Russian or another language
+#    bash run.sh call.m4a --language he,ru        a conversation in Hebrew and Russian
 #    bash run.sh ~/Recordings --ui-language ru    messages in Russian
 #    bash run.sh --help                           all options
 #
@@ -46,8 +47,8 @@ case "$UI" in ru) ;; *) UI="en" ;; esac
 say() { if [ "$UI" = "ru" ]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 
 if [ $# -eq 0 ]; then
-  say "Usage: bash run.sh <audio files or folders> [options]" \
-      "Использование: bash run.sh <аудиофайлы или папки> [параметры]"
+  say "Usage: bash run.sh <audio or video files, or folders> [options]" \
+      "Использование: bash run.sh <аудио- или видеофайлы, или папки> [параметры]"
   say "       bash run.sh --help   for all options" \
       "       bash run.sh --help   — все параметры"
   exit 2

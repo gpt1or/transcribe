@@ -38,3 +38,7 @@ audio/
 *.m4v
 *.mov
 *.mkv
+
+# The tiny test clips (a one-second tone, no speech) are part of the tests.
+!tests/media/
+!tests/media/*

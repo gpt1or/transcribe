@@ -2,7 +2,7 @@
 
 **Private, local Hebrew and Russian speech-to-text, with optional speaker labels.** Python package: `hebrew-transcribe`.
 
-Turn recordings (phone calls, meetings, voice notes, videos) into timestamped text on your own computer, from the command line or from Python. After a one-time model download it works offline, and it never sends your audio anywhere.
+Turn audio and video recordings (phone calls, meetings, voice notes, lectures) into timestamped text and subtitles on your own computer, from the command line or from Python. After a one-time model download it works offline, and it never sends your recordings anywhere.
 
 По-русски: [краткое описание](#russian) и [отказ от ответственности](#disclaimer-ru).
 
@@ -12,6 +12,8 @@ Turn recordings (phone calls, meetings, voice notes, videos) into timestamped te
 ## Features
 
 - **Hebrew and Russian.** Hebrew uses [ivrit.ai](https://www.ivrit.ai)'s fine-tune of OpenAI's Whisper; Russian uses Ivan Bondarenko's [Podlodka](https://huggingface.co/bond005/whisper-podlodka-turbo) fine-tune; `--language auto` picks the right one for each file. Other languages use OpenAI's multilingual Whisper. All run locally with [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
+- **Conversations in several languages.** When a recording switches between languages, each stretch is transcribed with its own language's model, and every line of the transcript shows its language. See [Conversations in several languages](#conversations-in-several-languages).
+- **Audio and video.** m4a, mp3, wav, ogg, opus, flac and other audio files, and the sound track of mp4, mov, mkv, webm, avi and other video files. The `.srt` file doubles as subtitles for the video.
 - **Three files per recording.** `.txt` (readable, with timestamps), `.srt` (subtitles, for checking the text against the audio in a player) and `.json` (segments with confidence scores), plus an `INDEX.md` of everything transcribed so far.
 - **Doubtful passages are marked.** Low-confidence segments get `⟨?⟩`, so a human checks them first.
 - **Optional speaker labels.** `--diarize` separates voices into "Speaker 1", "Speaker 2" with [pyannote](https://github.com/pyannote/pyannote-audio). Off by default.
@@ -42,12 +44,12 @@ pip install "hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git"
 
 ```text
 # requirements.txt
-hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.2.0
+hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.3.0
 ```
 
 ```toml
 # pyproject.toml
-dependencies = ["hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.2.0"]
+dependencies = ["hebrew-transcribe @ git+https://github.com/gpt1or/transcribe.git@v1.3.0"]
 ```
 
 **From a clone, without installing anything system-wide** (macOS / Linux):
@@ -68,8 +70,10 @@ The program is available as `transcribe`, as `hebrew-transcribe` (the same progr
 transcribe call.m4a                               # one file, in Hebrew
 transcribe ~/Recordings --out ~/Transcripts       # a whole folder, custom output folder
 transcribe ~/Recordings --language ru             # Russian recordings
-transcribe ~/Recordings --language auto           # detect Hebrew, Russian or another language per file
+transcribe ~/Recordings --language auto           # detect Hebrew, Russian or another language
 transcribe ~/Recordings --language he,ru          # detect, but choose only between Hebrew and Russian
+transcribe call.m4a --language he,ru --diarize    # a call in which Hebrew and Russian are both spoken
+transcribe ~/Videos/lecture.mp4                   # a video: its sound track is transcribed
 transcribe ~/Recordings --diarize --speakers 2    # phone calls, with speaker labels
 transcribe ~/Recordings --ui-language ru          # messages and transcript headers in Russian
 transcribe ~/Recordings --prompt "רונית, יוסי, משכנתא" # names and terms that occur in the audio
@@ -87,10 +91,10 @@ Speaker 2:
 
 | Option | Meaning |
 |---|---|
-| `PATH ...` | audio or video files and/or folders: m4a, mp3, wav, aac, flac, ogg, opus, amr, mp4, mov, mkv and more |
+| `PATH ...` | audio or video files and/or folders: m4a, mp3, wav, aac, flac, ogg, opus, amr, mp4, mov, mkv, webm, avi and more |
 | `-o`, `--out DIR` | output folder (default `./transcripts`) |
 | `-r`, `--recursive` | also look inside sub-folders |
-| `-l`, `--language` | `he` (default), `ru`, any other language code, `auto` to detect it for each file, or a list such as `he,ru` to choose among those |
+| `-l`, `--language` | `he` (default), `ru`, any other language code, `auto` to detect it (also when a conversation switches language), or a list such as `he,ru` to choose among those |
 | `-m`, `--model` | `turbo` (default) or `full` (larger and slower), which pick the model for the language (see [Languages and models](#languages-and-models)); or any faster-whisper model: a Hugging Face id or a local folder |
 | `--prompt TEXT` | names and terms that occur in the audio, to help recognise them |
 | `--diarize` | label speakers (see below) |
@@ -111,10 +115,42 @@ Speaker 2:
 | Any other language | [dropbox-dash/faster-whisper-large-v3-turbo](https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo) | [Systran/faster-whisper-large-v3](https://huggingface.co/Systran/faster-whisper-large-v3) |
 
 - **Russian** uses Ivan Bondarenko's Podlodka fine-tune of Whisper large-v3-turbo. For Russian, `full` is OpenAI's original multilingual large-v3: it is not tuned for Russian and is usually less accurate than the default, but worth a try when the default struggles with a recording.
-- **`--language auto`** detects each file's language from up to its first 90 seconds of speech, with OpenAI's multilingual turbo model, and then uses the model for that language. **`--language he,ru`** works the same way but chooses only between the listed languages, which helps when, for example, Russian speech is mistaken for Ukrainian.
-- **One language per file.** In a recording that switches language, the language that dominates its first 90 seconds of speech is used for the whole file.
+- **`--language auto`** detects the language with OpenAI's multilingual turbo model, from samples of speech throughout the recording, and then uses the model for that language. **`--language he,ru`** works the same way but chooses only between the listed languages. That is more reliable: Russian speech, for example, is not mistaken for Ukrainian.
+- **Both handle recordings that switch language**: see the next section.
 - Each model is downloaded the first time it is needed. `auto` can use three models (detection, Hebrew and Russian), so it needs more disk space and memory; `--download-only --language auto` fetches all three in advance.
 - `--prompt` works best with a fixed `--language`: a Hebrew prompt does not help a Russian recording.
+- A fixed `--language` is the fastest, because nothing is detected.
+
+## Conversations in several languages
+
+With `--language auto`, or a list such as `--language he,ru`, one recording can contain more than one language: for example a phone call in which one person speaks Hebrew and the other Russian, or a meeting that moves from one language to another.
+
+```bash
+transcribe call.m4a --language he,ru              # Hebrew and Russian
+transcribe call.m4a --language he,ru --diarize    # also when the speakers answer each other without a pause
+```
+
+How it works:
+
+1. The speech is cut into chunks at pauses, and with `--diarize` also where the speaker changes.
+2. A sample of chunks from the whole recording is checked for its language. If it holds only one language, the recording is transcribed in one piece, as usual.
+3. If the sample holds more than one, every chunk is checked, and each stretch of one language is transcribed with that language's model: Hebrew with ivrit.ai's, Russian with Podlodka, any other language with the multilingual model.
+
+The `.txt` file shows each line's language (`[00:12] [ru] ...`) and, in its header, each language's share of the speech (`he,ru → he 59%, ru 41% (mixed)`) and the model used for each. The `.json` file has the same as `languages` and `models`, and a `language` for every segment.
+
+Limits:
+
+- The language can change only at a pause or, with `--diarize`, where the speaker changes. Words of another language inside a sentence stay with the language around them, and are often marked `⟨?⟩`. So do chunks whose language is unclear, such as laughter.
+- A language spoken only briefly can be missed: if the sample happens to contain none of it, or, with `auto`, if it is less than about a tenth of the speech. Listing the languages (`--language he,ru`) finds such parts more reliably than `auto`.
+- A conversation in more than one language takes longer, because every part of it is checked; a recording in one language costs only the sample.
+
+## Video
+
+Video files are transcribed from their sound track: mp4, m4v, mov, mkv, webm, avi, wmv, flv, mpg, ts, 3gp and others. Folders include them alongside audio files, and a video is only read, never converted.
+
+- The `.srt` file is a subtitle file for the video. Copy `transcripts/lecture.srt` next to `lecture.mp4`, and players such as VLC, IINA and mpv show it with the picture. Check it against the speech before sharing it.
+- A video with several sound tracks (for example, dubbed into several languages): the first track is transcribed.
+- A video without sound is skipped with the message `has no audio track`, and the others are transcribed.
 
 ## Python
 
@@ -136,16 +172,30 @@ Other languages and speaker labels:
 
 ```python
 Transcriber(language="ru")                    # Russian
-Transcriber(language="auto")                  # detect each file's language; or language="he,ru"
+Transcriber(language="auto")                  # detect the language; or language="he,ru"
 Transcriber(diarize=True)                     # speaker labels: needs the diarize extra and a token (see below)
 transcriber.transcribe("call.m4a", speakers=2)
+transcriber.transcribe("lecture.mp4")         # a video: its sound track
+```
+
+A conversation in two languages:
+
+```python
+result = Transcriber(language="he,ru").transcribe("call.m4a")
+result.mixed                                  # True
+result.languages                              # {'he': 0.59, 'ru': 0.41}: each language's share of the speech
+result.models                                 # the model used for each language
+for s in result.segments:
+    print(s.language, s.text)                 # 'he' or 'ru' for each segment
 ```
 
 - `Transcriber(model="turbo", language="he", device="auto", prompt=None, flag_below=-0.55, diarize=False, ...)` loads models when first needed and keeps them; reuse it for many files. `model` also accepts `"full"`, a Hugging Face id or a local folder.
-- `transcribe(path, ..., speakers=None, prompt=None, on_segment=None)` returns a `Transcript` (`.segments`, `.text`, `.sha256`, `.duration`, `.model`, `.detected_language`, `.language_probability`, ...). `on_segment` is called with each segment as soon as it is ready.
+- `transcribe(path, ..., speakers=None, prompt=None, on_segment=None)` takes an audio or video file and returns a `Transcript` (`.segments`, `.text`, `.sha256`, `.duration`, `.model`, `.detected_language`, `.language_probability`, `.languages`, `.models`, ...). Each `Segment` has `.start`, `.end`, `.text`, `.speaker`, `.language` and `.low_confidence`. `on_segment` is called with each segment as soon as it is ready.
 - `hebrew_transcribe.transcribe("call.m4a", language="ru")` is a one-off shortcut; `Transcript.load("call.json")` reads a saved transcript back.
+- `load_audio(path)` decodes any audio or video file to 16 kHz mono samples. `Transcriber.plan_languages(audio)` tells which language each part is in, as a `LanguagePlan` whose `runs` are `(start, end, language)`; `detect_language(audio)` gives the main language.
+- `find_media(paths, recursive=False)` lists the audio and video files in files and folders (`AUDIO_EXTENSIONS`, `VIDEO_EXTENSIONS`).
 - `LANGUAGE_MODELS`, `model_for(language, size)` and `required_models(model, language)` tell which models a setting uses, for example to download them in advance with `resolve_model()`.
-- Errors are raised as `ValueError` (unknown language), `ModelDownloadError` and `DiarizationUnavailable`. Progress goes to the `hebrew_transcribe` logger; the library never prints. `set_ui_language("ru")` switches those messages and the transcript headers to Russian.
+- Errors are raised as `ValueError` (unknown language), `NoAudioError` (a file without sound; also a `ValueError`), `ModelDownloadError` and `DiarizationUnavailable`. Progress goes to the `hebrew_transcribe` logger; the library never prints. `set_ui_language("ru")` switches those messages and the transcript headers to Russian.
 - The library does not change process-wide settings, apart from the two telemetry defaults described under [Privacy](#privacy). Behind a TLS-inspecting corporate proxy, call `hebrew_transcribe.use_system_certificates()` once at startup.
 
 ## Speaker labels (optional)
@@ -175,6 +225,7 @@ Speaker labels separate voices; they do not identify anyone. Matching "Speaker 1
 - **Voice-activity detection** skips silence, for the same reason.
 - **The `⟨?⟩` threshold of −0.55.** At −0.85 nothing was marked in about 90 minutes of phone audio; −0.55 marks what is worth a second listen without marking everything. Adjust with `--flag-below`.
 - **`--prompt`.** Telling Whisper which names and terms to expect noticeably improves how they are written.
+- **Languages: a sample first, every part only if needed.** Checking a sample keeps recordings in one language fast; checking every part once a second language is heard keeps mixed conversations accurate. A change of language needs a clear detection, so a laugh or a single word does not split a conversation.
 - **Read-only sources and SHA-256.** A transcript can always be tied to an unmodified original.
 
 <a name="russian"></a>
@@ -188,9 +239,12 @@ pipx install "git+https://github.com/gpt1or/transcribe.git"
 transcribe ~/Записи --language ru --ui-language ru     # русские записи, сообщения на русском
 transcribe ~/Записи --language auto --ui-language ru   # иврит или русский — для каждого файла отдельно
 transcribe ~/Записи --language he,ru --diarize         # выбор только между ивритом и русским, с разделением по говорящим
+transcribe ~/Видео/лекция.mp4 --language ru            # видео: расшифровывается звуковая дорожка
 ```
 
 - Для русского используется модель Ивана Бондаренко [whisper-podlodka-turbo](https://huggingface.co/bond005/whisper-podlodka-turbo), дообученная Whisper large-v3-turbo; для иврита — модели [ivrit.ai](https://www.ivrit.ai).
+- **Разговор на двух языках.** Если в записи звучат и иврит, и русский, укажите `--language he,ru`: каждая часть разговора будет расшифрована моделью своего языка, а в `.txt` у каждой строки будет отметка языка, например `[ru]`. С `--diarize` смена языка находится и тогда, когда собеседники отвечают друг другу без паузы. Слова на другом языке внутри фразы остаются в языке фразы.
+- **Видео** (mp4, mov, mkv, webm, avi и другие) расшифровывается по звуковой дорожке; файл `.srt` можно использовать как субтитры к видео.
 - Чтобы сообщения всегда были на русском, задайте переменную `TRANSCRIBE_UI_LANGUAGE=ru`. Из клона репозитория: `bash run.sh ~/Записи --language ru --ui-language ru`.
 - Машинная расшифровка ошибается: сверяйте каждую расшифровку с записью, начиная с мест, отмеченных `⟨?⟩`.
 - Перед использованием прочтите [отказ от ответственности](#disclaimer-ru).
@@ -201,7 +255,7 @@ transcribe ~/Записи --language he,ru --diarize         # выбор тол
 - The network is used only to install packages (from PyPI) and to download models (from Hugging Face). Once downloaded, the speech models are loaded from disk without contacting the network; the optional speaker model may still check Hugging Face for updates (metadata only). To block all network access, set `HF_HUB_OFFLINE=1`.
 - Telemetry is off. Importing the package sets `PYANNOTE_METRICS_ENABLED=0` (pyannote.audio's usage metrics) and `HF_HUB_DISABLE_TELEMETRY=1`, unless you have set them yourself.
 - The command-line tool also trusts the operating system's certificate store and skips Hugging Face's Xet download CDN (`HF_HUB_DISABLE_XET=1`), which helps behind corporate proxies. The library leaves those choices to you.
-- In a clone, `transcripts/`, common audio formats, tokens and certificate files are listed in `.gitignore`, so they are not committed by accident.
+- In a clone, `transcripts/`, subtitles, common audio and video formats, tokens and certificate files are listed in `.gitignore`, so they are not committed by accident. The only exception are the one-second test tones in `tests/media`.
 
 ## Troubleshooting
 
@@ -212,6 +266,8 @@ transcribe ~/Записи --language he,ru --diarize         # выбор тол
 | The download keeps failing | Disconnect from a work VPN or switch network (a phone hotspot works) and run again. It resumes, and internet is needed only once. |
 | `python3: command not found` | macOS: `xcode-select --install` or `brew install python`. Linux: install `python3` and `python3-venv`. |
 | The wrong language is detected | Set it: `--language ru` or `--language he`. Or limit the choice: `--language he,ru`. |
+| A conversation in two languages comes out in one | List the languages: `--language he,ru`. If the speakers answer each other without a pause, add `--diarize`. |
+| `has no audio track` | The video has no sound. Check that it plays with sound in a media player. |
 | Speaker labels fail to load | Install the extra packages and accept the model terms (see above) with the account that owns the token. Transcription works without them. |
 | Text repeats in a loop | Run that file again with `--model full --force`. |
 | Disk space | Models are stored in `~/.cache/huggingface`: about 1.6 GB per `turbo` model, about 3 GB per `full` model. |
@@ -224,6 +280,8 @@ git clone https://github.com/gpt1or/transcribe.git && cd transcribe
 python3 -m venv .venv && .venv/bin/pip install -e ".[diarize]"
 .venv/bin/python -m unittest discover -s tests -v    # offline: the models are replaced by fakes
 ```
+
+`tests/test_media.py` also decodes the short clips in `tests/media` with the real PyAV and faster-whisper (no model needed); it is skipped when they are not installed.
 
 Messages live in `src/hebrew_transcribe/i18n.py`; a test checks that every English message has a Russian translation with the same placeholders.
 
@@ -253,9 +311,9 @@ None of these is included in this repository. You download them yourself, from t
 
 This is a free, non-commercial, open-source project. It is provided **"AS IS", without warranty of any kind**, under the [MIT License](LICENSE). The terms below are in addition to that license.
 
-1. **Your recordings are your responsibility.** This software does not record anything; it only processes audio files that you choose to give it. You alone are responsible for making sure that you are legally allowed to record, keep, transcribe, store and share every recording and transcript, including obtaining any consent required from the people recorded. Laws differ between countries and states: some allow a participant to record a conversation they take part in, others require the consent of everyone in it, and publishing a recording or its transcript may be restricted even where making it was lawful.
+1. **Your recordings are your responsibility.** This software does not record anything; it only processes audio and video files that you choose to give it. You alone are responsible for making sure that you are legally allowed to record, keep, transcribe, store and share every recording and transcript, including obtaining any consent required from the people recorded. Laws differ between countries and states: some allow a participant to record a conversation they take part in, others require the consent of everyone in it, and publishing a recording, its transcript or subtitles made from it may be restricted even where making it was lawful. Recordings, and especially videos such as films, programmes and online videos, may also be protected by copyright or other rights: you are responsible for having the right to transcribe them, and to use, publish or share the transcripts and subtitles.
 2. **Personal data and voice data.** Recordings and transcripts usually contain other people's personal data. The optional speaker-labelling feature (`--diarize`, off by default) analyses voice characteristics to tell speakers apart, and some laws specifically regulate voice or biometric data (for example, the EU General Data Protection Regulation and the Illinois Biometric Information Privacy Act). When you process other people's data, you are responsible for complying with the privacy and data-protection laws that apply to you.
-3. **No guarantee of accuracy.** Machine transcription makes mistakes: wrong, missing or invented words, wrong timestamps and wrong speaker labels. The `⟨?⟩` marks catch only some of them, and unmarked text can be wrong too. Check every transcript against the original audio before relying on it, especially in legal, medical, financial, employment or other important matters. The output is not a certified transcription and is not, by itself, reliable evidence of what was said.
+3. **No guarantee of accuracy.** Machine transcription makes mistakes: wrong, missing or invented words, passages recognised in the wrong language, wrong timestamps and wrong speaker labels. The `⟨?⟩` marks catch only some of them, and unmarked text can be wrong too. Check every transcript against the original audio before relying on it, especially in legal, medical, financial, employment or other important matters. The output is not a certified transcription and is not, by itself, reliable evidence of what was said.
 4. **Not legal advice.** Nothing in this repository is legal or other professional advice. If in doubt, consult a lawyer where you live.
 5. **Third-party models and software.** The speech and speaker models are downloaded by you from Hugging Face, and the Python packages from PyPI. They are not part of this repository, are not distributed by the author, and are governed by their own licenses and terms, which you must accept and follow (see [Third-party components](#third-party-components)).
 6. **No data collection.** The software runs on your own computer. The author operates no server and never receives, stores or has access to your audio, transcripts or access tokens.
@@ -274,9 +332,9 @@ This is a free, non-commercial, open-source project. It is provided **"AS IS", w
 
 זהו פרויקט קוד פתוח חינמי שאינו מסחרי. התוכנה מסופקת **"כמות שהיא" (AS IS), ללא אחריות מכל סוג**, לפי [רישיון MIT](LICENSE). התנאים שלהלן באים בנוסף לרישיון.
 
-1. **ההקלטות באחריותך.** התוכנה אינה מקליטה דבר; היא רק מעבדת קובצי שמע שבחרת לתת לה. האחריות לוודא שמותר לך על פי דין להקליט, להחזיק, לתמלל, לשמור ולשתף כל הקלטה וכל תמלול, לרבות קבלת כל הסכמה הנדרשת מהמוקלטים, חלה עליך בלבד. הדין שונה ממדינה למדינה: יש המתירים למשתתף בשיחה להקליט אותה, ויש הדורשים את הסכמת כל המשתתפים. גם כשההקלטה עצמה מותרת, פרסומה או פרסום התמלול עשויים להיות אסורים.
+1. **ההקלטות באחריותך.** התוכנה אינה מקליטה דבר; היא רק מעבדת קובצי שמע ווידאו שבחרת לתת לה. האחריות לוודא שמותר לך על פי דין להקליט, להחזיק, לתמלל, לשמור ולשתף כל הקלטה וכל תמלול, לרבות קבלת כל הסכמה הנדרשת מהמוקלטים, חלה עליך בלבד. הדין שונה ממדינה למדינה: יש המתירים למשתתף בשיחה להקליט אותה, ויש הדורשים את הסכמת כל המשתתפים. גם כשההקלטה עצמה מותרת, פרסומה, פרסום התמלול או פרסום כתוביות שהופקו ממנה עשויים להיות אסורים. הקלטות, ובפרט סרטונים כגון סרטים, תוכניות וסרטונים מהרשת, עשויות להיות מוגנות גם בזכויות יוצרים או בזכויות אחרות: האחריות לוודא שמותר לך לתמלל אותן, ולהשתמש בתמלולים ובכתוביות, לפרסם אותם או לשתף אותם, חלה עליך.
 2. **מידע אישי ומידע קולי.** הקלטות ותמלולים מכילים בדרך כלל מידע אישי על אחרים. הפרדת הדוברים (`--diarize`, כבויה כברירת מחדל) מנתחת מאפייני קול כדי להבחין בין דוברים, ויש דינים המסדירים במיוחד מידע קולי או ביומטרי. כשאתה מעבד מידע על אחרים, האחריות לעמוד בדיני הפרטיות והגנת המידע החלים עליך היא שלך.
-3. **אין התחייבות לדיוק.** תמלול ממוכן טועה: מילים שגויות, חסרות או מומצאות, חותמות זמן שגויות ושיוך דוברים שגוי. הסימון `⟨?⟩` תופס רק חלק מהטעויות, וגם טקסט שאינו מסומן עלול להיות שגוי. יש לבדוק כל תמלול מול ההקלטה המקורית לפני שמסתמכים עליו, בפרט בעניינים משפטיים, רפואיים, כספיים או תעסוקתיים. הפלט אינו תמלול מאושר, ואינו כשלעצמו ראיה מהימנה למה שנאמר.
+3. **אין התחייבות לדיוק.** תמלול ממוכן טועה: מילים שגויות, חסרות או מומצאות, קטעים שזוהו בשפה הלא נכונה, חותמות זמן שגויות ושיוך דוברים שגוי. הסימון `⟨?⟩` תופס רק חלק מהטעויות, וגם טקסט שאינו מסומן עלול להיות שגוי. יש לבדוק כל תמלול מול ההקלטה המקורית לפני שמסתמכים עליו, בפרט בעניינים משפטיים, רפואיים, כספיים או תעסוקתיים. הפלט אינו תמלול מאושר, ואינו כשלעצמו ראיה מהימנה למה שנאמר.
 4. **אין זה ייעוץ משפטי.** דבר במאגר זה אינו ייעוץ משפטי או מקצועי אחר. במקרה של ספק יש להיוועץ בעורך דין.
 5. **מודלים ותוכנות של צד שלישי.** מודלי הדיבור והדוברים מורדים על ידך מ-Hugging Face, וחבילות ה-Python מ-PyPI. הם אינם חלק ממאגר זה, אינם מופצים על ידי המפתח, וחלים עליהם הרישיונות והתנאים שלהם, שעליך לקבל ולקיים.
 6. **אין איסוף מידע.** התוכנה פועלת על המחשב שלך. למפתח אין שרת, והוא אינו מקבל, אינו שומר ואין לו גישה להקלטות, לתמלולים או לטוקנים שלך.
@@ -297,9 +355,9 @@ This is a free, non-commercial, open-source project. It is provided **"AS IS", w
 
 Это бесплатный некоммерческий проект с открытым исходным кодом. Программа предоставляется **«как есть» (AS IS), без каких-либо гарантий**, на условиях [лицензии MIT](LICENSE). Условия ниже дополняют эту лицензию.
 
-1. **Ответственность за записи несёте вы.** Программа ничего не записывает: она лишь обрабатывает аудиофайлы, которые вы ей передаёте. Только вы отвечаете за то, чтобы закон разрешал вам записывать, хранить, расшифровывать, сохранять и передавать каждую запись и каждую расшифровку, включая получение необходимого согласия записанных людей. Законы разных стран и штатов различаются: одни разрешают участнику разговора записывать его, другие требуют согласия всех участников, а публикация записи или её расшифровки может быть ограничена, даже если сама запись была законной.
+1. **Ответственность за записи несёте вы.** Программа ничего не записывает: она лишь обрабатывает аудио- и видеофайлы, которые вы ей передаёте. Только вы отвечаете за то, чтобы закон разрешал вам записывать, хранить, расшифровывать, сохранять и передавать каждую запись и каждую расшифровку, включая получение необходимого согласия записанных людей. Законы разных стран и штатов различаются: одни разрешают участнику разговора записывать его, другие требуют согласия всех участников, а публикация записи, её расшифровки или сделанных по ней субтитров может быть ограничена, даже если сама запись была законной. Записи, и особенно видео — фильмы, передачи, ролики из интернета, — могут также охраняться авторским или иным правом: вы отвечаете за то, чтобы иметь право их расшифровывать, а также использовать, публиковать и передавать расшифровки и субтитры.
 2. **Персональные и голосовые данные.** Записи и расшифровки обычно содержат персональные данные других людей. Необязательное разделение по говорящим (`--diarize`, по умолчанию выключено) анализирует характеристики голоса, чтобы различать говорящих, а некоторые законы особо регулируют голосовые или биометрические данные (например, Общий регламент ЕС по защите данных (GDPR) и Закон штата Иллинойс о конфиденциальности биометрической информации (BIPA)). Обрабатывая данные других людей, вы отвечаете за соблюдение применимых к вам законов о конфиденциальности и защите данных.
-3. **Точность не гарантируется.** Машинная расшифровка ошибается: неверные, пропущенные или выдуманные слова, неверные метки времени и неверное определение говорящих. Отметки `⟨?⟩` выявляют лишь часть ошибок, и неотмеченный текст тоже может быть неверным. Сверяйте каждую расшифровку с исходной записью, прежде чем на неё полагаться, особенно в юридических, медицинских, финансовых, трудовых и других важных вопросах. Результат не является заверенной расшифровкой и сам по себе не является надёжным доказательством того, что было сказано.
+3. **Точность не гарантируется.** Машинная расшифровка ошибается: неверные, пропущенные или выдуманные слова, фрагменты, распознанные не на том языке, неверные метки времени и неверное определение говорящих. Отметки `⟨?⟩` выявляют лишь часть ошибок, и неотмеченный текст тоже может быть неверным. Сверяйте каждую расшифровку с исходной записью, прежде чем на неё полагаться, особенно в юридических, медицинских, финансовых, трудовых и других важных вопросах. Результат не является заверенной расшифровкой и сам по себе не является надёжным доказательством того, что было сказано.
 4. **Это не юридическая консультация.** Ничто в этом репозитории не является юридической или иной профессиональной консультацией. В случае сомнений обратитесь к юристу в вашей стране.
 5. **Модели и программы третьих лиц.** Модели распознавания речи и разделения по говорящим вы скачиваете сами с Hugging Face, а пакеты Python — с PyPI. Они не входят в этот репозиторий, не распространяются автором и регулируются собственными лицензиями и условиями, которые вы обязаны принять и соблюдать (см. [Third-party components](#third-party-components)).
 6. **Данные не собираются.** Программа работает на вашем компьютере. У автора нет сервера, и он не получает, не хранит и не имеет доступа к вашим записям, расшифровкам или токенам доступа.
