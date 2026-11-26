@@ -1,9 +1,10 @@
-"""hebrew-transcribe: private, local Hebrew speech-to-text with optional speaker labels.
+"""hebrew-transcribe: private, local Hebrew and Russian speech-to-text with
+optional speaker labels.
 
     from hebrew_transcribe import Transcriber
 
-    transcriber = Transcriber()                  # loads (and once downloads) the model
-    result = transcriber.transcribe("call.m4a")
+    transcriber = Transcriber()                  # Hebrew; language="ru" for Russian,
+    result = transcriber.transcribe("call.m4a")  # language="auto" to detect per file
     print(result.text)
     result.save("transcripts")                   # .txt, .srt and .json
 
@@ -22,6 +23,8 @@ _os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 from ._version import __version__  # noqa: E402
 from .core import (  # noqa: E402
+    DETECTION_MODEL,
+    LANGUAGE_MODELS,
     LOW_CONFIDENCE,
     MODELS,
     UNSURE,
@@ -32,14 +35,19 @@ from .core import (  # noqa: E402
     Transcriber,
     Transcript,
     find_audio,
+    model_for,
+    required_models,
     resolve_model,
     transcribe,
     use_system_certificates,
 )
+from .i18n import get_ui_language, set_ui_language  # noqa: E402
 from .output import write_index  # noqa: E402
 
 __all__ = [
     "__version__",
+    "DETECTION_MODEL",
+    "LANGUAGE_MODELS",
     "LOW_CONFIDENCE",
     "MODELS",
     "UNSURE",
@@ -50,7 +58,11 @@ __all__ = [
     "Transcriber",
     "Transcript",
     "find_audio",
+    "get_ui_language",
+    "model_for",
+    "required_models",
     "resolve_model",
+    "set_ui_language",
     "transcribe",
     "use_system_certificates",
     "write_index",

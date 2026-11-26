@@ -1,4 +1,7 @@
-"""Transcript files (.txt, .srt, .json) and the INDEX.md of an output folder."""
+"""Transcript files (.txt, .srt, .json) and the INDEX.md of an output folder.
+
+The readable files (.txt, .srt, INDEX.md) use the current UI language (see
+i18n); the .json data is always the same, whatever the UI language."""
 from __future__ import annotations
 
 import json
@@ -9,6 +12,7 @@ from typing import Iterable
 
 from ._version import __version__
 from .core import UNSURE, Transcript, clock, srt_time
+from .i18n import speaker_name, t
 
 
 def write_atomic(path: Path, text: str) -> None:
@@ -19,56 +23,62 @@ def write_atomic(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
-def render_txt(t: Transcript) -> str:
+def language_text(tr: Transcript) -> str:
+    """'he', or 'auto → ru (97%)' when the language was detected."""
+    detected = tr.detected_language
+    if tr.language_probability is None or not detected or tr.language == detected:
+        return tr.language or detected or "?"
+    return f"{tr.language} → {detected} ({round(tr.language_probability * 100)}%)"
+
+
+def render_txt(tr: Transcript) -> str:
     line = "=" * 66
-    header = [
-        f"Transcript - {t.file}",
-        line,
-        f"Source file : {t.file}",
-        f"SHA-256     : {t.sha256}",
-        f"Duration    : {clock(t.duration)}",
-        f"Model       : {t.model}",
-        f"Language    : {t.language}",
-        f"Speakers    : {t.diarization or 'not separated'}",
-        f"Created     : {t.created}, locally, by {t.tool}",
-        "-" * 66,
-        "Machine-generated. It may contain wrong, missing or invented words",
-        f"and wrong speaker labels. {UNSURE} = low confidence. Verify against the",
-        "original audio before relying on any part of it.",
-        line,
+    fields = [
+        (t("txt.source"), tr.file),
+        (t("txt.sha256"), tr.sha256),
+        (t("txt.duration"), clock(tr.duration)),
+        (t("txt.model"), tr.model),
+        (t("txt.language"), language_text(tr)),
+        (t("txt.speakers"), tr.diarization or t("txt.not_separated")),
+        (t("txt.created"), t("txt.created_value", created=tr.created, tool=tr.tool)),
     ]
+    width = max(len(label) for label, _ in fields)
+    header = [t("txt.title", file=tr.file), line]
+    header += [f"{label:<{width}} : {value}" for label, value in fields]
+    header += ["-" * 66, t("txt.warning", mark=UNSURE), line]
+
     body: list[str] = []
     previous: object = object()
-    for s in t.segments:
-        if t.diarization and s.speaker != previous:
+    for s in tr.segments:
+        if tr.diarization and s.speaker != previous:
             if body:
                 body.append("")
-            body.append(f"{s.speaker or 'Speaker ?'}:")
+            body.append(f"{speaker_name(s.speaker)}:")
             previous = s.speaker
         mark = f" {UNSURE}" if s.low_confidence else ""
         body.append(f"  [{clock(s.start)}] {s.text}{mark}")
-    footer = [line, f"End of transcript. {len(t.segments)} segments, {t.flagged} marked {UNSURE}.", ""]
+    footer = [line, t("txt.end", segments=len(tr.segments), flagged=tr.flagged, mark=UNSURE), ""]
     return "\n".join(header + [""] + body + [""] + footer)
 
 
-def render_srt(t: Transcript) -> str:
+def render_srt(tr: Transcript) -> str:
     blocks = []
-    for i, s in enumerate(t.segments, 1):
-        prefix = f"{s.speaker}: " if s.speaker else ""
+    for i, s in enumerate(tr.segments, 1):
+        prefix = f"{speaker_name(s.speaker)}: " if s.speaker else ""
         blocks.append(f"{i}\n{srt_time(s.start)} --> {srt_time(s.end)}\n{prefix}{s.text}\n")
     return "\n".join(blocks)
 
 
-def save(t: Transcript, out_dir: str | os.PathLike, name: str | None = None) -> Path:
+def save(tr: Transcript, out_dir: str | os.PathLike, name: str | None = None) -> Path:
     """Write <name>.json, <name>.srt and <name>.txt into out_dir. The .txt is
     written last: its presence is what marks a file as done. Returns its path."""
     folder = Path(out_dir).expanduser()
     folder.mkdir(parents=True, exist_ok=True)
-    name = name or Path(t.file).stem
-    write_atomic(folder / f"{name}.json", t.to_json())
-    write_atomic(folder / f"{name}.srt", render_srt(t))
+    name = name or Path(tr.file).stem
+    write_atomic(folder / f"{name}.json", tr.to_json())
+    write_atomic(folder / f"{name}.srt", render_srt(tr))
     txt = folder / f"{name}.txt"
-    write_atomic(txt, render_txt(t))
+    write_atomic(txt, render_txt(tr))
     return txt
 
 
@@ -95,6 +105,13 @@ def _md_cell(text: object) -> str:
     return str(text).replace("|", "\\|")
 
 
+def _index_language(tr: Transcript) -> str:
+    code = tr.detected_language or tr.language or "?"
+    if tr.language_probability is None:
+        return code
+    return f"{code} ({round(tr.language_probability * 100)}%)"
+
+
 def write_index(out_dir: str | os.PathLike) -> int:
     """(Re)write INDEX.md for every transcript in the folder, including those
     from earlier runs. Returns how many transcripts it lists."""
@@ -115,24 +132,21 @@ def write_index(out_dir: str | os.PathLike) -> int:
     if not entries:
         return 0
 
+    columns = t("index.columns", mark=UNSURE)
     md = [
-        "# Transcripts",
+        t("index.title"),
         "",
-        f"Updated {datetime.now():%Y-%m-%d %H:%M}. Generated locally by hebrew-transcribe {__version__}.",
+        t("index.updated", date=f"{datetime.now():%Y-%m-%d %H:%M}", version=__version__),
         "",
-        f"| Source file | Duration | Segments | {UNSURE} | Speakers | Model | Transcript |",
-        "|---|---|---|---|---|---|---|",
+        f"| {columns} |",
+        "|" + "---|" * (columns.count("|") + 1),
     ]
-    for t, txt_name in entries:
+    for tr, txt_name in entries:
         md.append(
-            f"| {_md_cell(t.file or '?')} | {clock(t.duration)} | {len(t.segments)} | {t.flagged} "
-            f"| {'yes' if t.diarization else '-'} | {_md_cell(t.model or '?')} | `{txt_name}` |"
+            f"| {_md_cell(tr.file or '?')} | {clock(tr.duration)} | {len(tr.segments)} | {tr.flagged} "
+            f"| {t('index.yes') if tr.diarization else '-'} | {_md_cell(_index_language(tr))} "
+            f"| {_md_cell(tr.model or '?')} | `{txt_name}` |"
         )
-    md += [
-        "",
-        f"**{UNSURE} = low confidence.** Listen to those parts before relying on a quote. "
-        "Unmarked text can be wrong too: machine transcripts must be checked against the audio.",
-        "",
-    ]
+    md += ["", t("index.note", mark=UNSURE), ""]
     write_atomic(folder / "INDEX.md", "\n".join(md))
     return len(entries)

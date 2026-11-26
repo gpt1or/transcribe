@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hebrew-transcribe"
 dynamic = ["version"]
-description = "Private, local Hebrew speech-to-text with optional speaker labels (faster-whisper + ivrit.ai models)."
+description = "Private, local Hebrew and Russian speech-to-text with optional speaker labels (faster-whisper with ivrit.ai and Podlodka models)."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -16,7 +16,7 @@ dependencies = [
     "huggingface_hub>=0.23",
     "truststore>=0.9",
 ]
-keywords = ["hebrew", "speech-to-text", "transcription", "whisper", "asr", "diarization", "offline"]
+keywords = ["hebrew", "russian", "speech-to-text", "transcription", "whisper", "asr", "diarization", "offline"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",

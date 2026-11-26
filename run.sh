@@ -6,6 +6,9 @@
 #
 #    bash run.sh ~/Recordings                     every audio file in a folder
 #    bash run.sh call.m4a --diarize --speakers 2  one file, with speaker labels
+#    bash run.sh ~/Recordings --language ru       Russian recordings
+#    bash run.sh ~/Recordings --language auto     Hebrew or Russian, per file
+#    bash run.sh ~/Recordings --ui-language ru    messages in Russian
 #    bash run.sh --help                           all options
 #
 #  Installed the package with pip or pipx? Then just run:  transcribe ...
@@ -15,10 +18,38 @@ set -eo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY="$DIR/.venv/bin/python"
 CERTS="$DIR/ca-bundle.pem"
+UI="${TRANSCRIBE_UI_LANGUAGE:-en}"
+LANGUAGE="he"
+MODEL="turbo"
+DIARIZE=0
+WANTS_HELP=0
+
+prev=""
+for arg in "$@"; do
+  case "$prev" in
+    -l|--language) LANGUAGE="$arg" ;;
+    -m|--model)    MODEL="$arg" ;;
+    --ui-language) UI="$arg" ;;
+  esac
+  case "$arg" in
+    --diarize)           DIARIZE=1 ;;
+    -h|--help|--version) WANTS_HELP=1 ;;
+    --language=*)        LANGUAGE="${arg#--language=}" ;;
+    --model=*)           MODEL="${arg#--model=}" ;;
+    --ui-language=*)     UI="${arg#--ui-language=}" ;;
+  esac
+  prev="$arg"
+done
+case "$UI" in ru) ;; *) UI="en" ;; esac
+
+# say "English" "Русский"
+say() { if [ "$UI" = "ru" ]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 
 if [ $# -eq 0 ]; then
-  echo "Usage: bash run.sh <audio files or folders> [options]"
-  echo "       bash run.sh --help   for all options"
+  say "Usage: bash run.sh <audio files or folders> [options]" \
+      "Использование: bash run.sh <аудиофайлы или папки> [параметры]"
+  say "       bash run.sh --help   for all options" \
+      "       bash run.sh --help   — все параметры"
   exit 2
 fi
 
@@ -26,30 +57,23 @@ has() {
   [ -x "$PY" ] && "$PY" -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('$1') else 1)" >/dev/null 2>&1
 }
 
-DIARIZE=0
-WANTS_HELP=0
-for arg in "$@"; do
-  case "$arg" in
-    --diarize)           DIARIZE=1 ;;
-    -h|--help|--version) WANTS_HELP=1 ;;
-  esac
-done
-
 # Help works before anything is installed.
 if [ "$WANTS_HELP" = 1 ] && ! has hebrew_transcribe; then
   PYTHONPATH="$DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m hebrew_transcribe "$@"
 fi
 
 if ! has hebrew_transcribe || ! has faster_whisper; then
-  echo "First run: installing (needs internet once; afterwards it works offline)."
+  say "First run: installing (needs internet once; afterwards it works offline)." \
+      "Первый запуск: установка (интернет нужен один раз, дальше всё работает офлайн)."
   if [ "$DIARIZE" = 1 ]; then
-    bash "$DIR/setup.sh" --diarize
+    bash "$DIR/setup.sh" --diarize --model "$MODEL" --language "$LANGUAGE" --ui-language "$UI"
   else
-    bash "$DIR/setup.sh"
+    bash "$DIR/setup.sh" --model "$MODEL" --language "$LANGUAGE" --ui-language "$UI"
   fi
 elif [ "$DIARIZE" = 1 ] && ! has pyannote.audio; then
-  echo "Speaker labels requested: installing the extra packages first."
-  bash "$DIR/setup.sh" --diarize
+  say "Speaker labels requested: installing the extra packages first." \
+      "Запрошено разделение по говорящим: сначала устанавливаются дополнительные пакеты."
+  bash "$DIR/setup.sh" --diarize --model "$MODEL" --language "$LANGUAGE" --ui-language "$UI"
 fi
 
 # A token saved by version 1.0 next to the scripts is still honoured.

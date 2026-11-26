@@ -1,4 +1,5 @@
-"""Transcription engine: models, optional speaker labels and the Transcript type.
+"""Transcription engine: models per language, language detection, optional
+speaker labels, and the Transcript type.
 
 Third-party packages (faster-whisper, huggingface_hub, pyannote.audio, torch)
 are imported only when needed, so importing this module is cheap and
@@ -17,18 +18,50 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from ._version import __version__
+from .i18n import language_name, t
 
 log = logging.getLogger("hebrew_transcribe")
 
 # ----------------------------------------------------------------------------
-# Settings
+# Models
 # ----------------------------------------------------------------------------
-MODELS = {
-    "turbo": "ivrit-ai/whisper-large-v3-turbo-ct2",  # default: fast and accurate
-    "full": "ivrit-ai/whisper-large-v3-ct2",  # about 3x slower, sometimes better
+SIZES = ("turbo", "full")
+
+# The model used for each language: "turbo" is the default, "full" is larger
+# and slower. "*" covers every other language, and its turbo model also
+# detects the language with --language auto.
+LANGUAGE_MODELS: dict[str, dict[str, str]] = {
+    "he": {  # ivrit.ai's Hebrew fine-tunes of OpenAI Whisper
+        "turbo": "ivrit-ai/whisper-large-v3-turbo-ct2",
+        "full": "ivrit-ai/whisper-large-v3-ct2",
+    },
+    "ru": {  # Ivan Bondarenko's Russian fine-tune of Whisper large-v3-turbo (Podlodka)
+        "turbo": "bond005/whisper-podlodka-turbo-ct2",
+        "full": "Systran/faster-whisper-large-v3",
+    },
+    "*": {  # OpenAI Whisper, multilingual
+        "turbo": "dropbox-dash/faster-whisper-large-v3-turbo",
+        "full": "Systran/faster-whisper-large-v3",
+    },
 }
+DETECTION_MODEL = LANGUAGE_MODELS["*"]["turbo"]
+MODELS = dict(LANGUAGE_MODELS["he"])  # the Hebrew models (the 1.x name, kept for compatibility)
+
 DIARIZATION_MODEL_V4 = "pyannote/speaker-diarization-community-1"  # pyannote.audio 4.x
 DIARIZATION_MODEL_V3 = "pyannote/speaker-diarization-3.1"  # pyannote.audio 3.x
+
+# Language codes Whisper knows, and a few spellings people actually type.
+WHISPER_LANGUAGES = frozenset(
+    "en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta "
+    "no th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk "
+    "sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb "
+    "my bo tl mg as tt haw ln ha ba jw su yue".split()
+)
+LANGUAGE_ALIASES = {
+    "iw": "he", "heb": "he", "hebrew": "he", "иврит": "he", "עברית": "he",
+    "rus": "ru", "russian": "ru", "русский": "ru", "רוסית": "ru",
+    "eng": "en", "english": "en", "английский": "en", "אנגלית": "en",
+}
 
 AUDIO_EXTENSIONS = frozenset({
     ".m4a", ".mp3", ".wav", ".aac", ".flac", ".ogg", ".oga", ".opus", ".wma",
@@ -44,6 +77,10 @@ TOOL = f"hebrew-transcribe {__version__}"
 # -0.85 marked nothing in about 90 minutes of phone calls; -0.55 marked what
 # was worth a second listen without marking the whole file.
 LOW_CONFIDENCE = -0.55
+
+# Language detection: up to 3 windows of 30 s of speech; below this
+# probability the result is reported as uncertain.
+UNCERTAIN_LANGUAGE = 0.5
 
 
 class ModelDownloadError(RuntimeError):
@@ -123,12 +160,12 @@ def find_audio(paths: Iterable[str | os.PathLike], recursive: bool = False) -> l
                 and not f.name.startswith(".")
             )
             if not candidates:
-                hint = "" if recursive else " (add --recursive for sub-folders)"
-                log.warning("  ! no audio files in %s%s", path, hint)
+                hint = "" if recursive else t("no_audio_hint")
+                log.warning(t("no_audio", path=path, hint=hint))
         elif path.is_file():
             candidates = [path]
         else:
-            log.warning("  x not found: %s", path)
+            log.warning(t("not_found", path=path))
             continue
         for f in candidates:
             key = f.resolve()
@@ -139,13 +176,63 @@ def find_audio(paths: Iterable[str | os.PathLike], recursive: bool = False) -> l
 
 
 # ----------------------------------------------------------------------------
-# Speech model
+# Languages
+# ----------------------------------------------------------------------------
+def parse_language(language: str | Iterable[str] | None) -> tuple[str | None, tuple[str, ...] | None]:
+    """Split a language setting into (fixed language, candidates):
+    'he' -> ('he', None); 'auto' or None -> (None, None), detect any language;
+    'he,ru' or ['he', 'ru'] -> (None, ('he', 'ru')), detect among those.
+    Raises ValueError for an unknown language code."""
+    if language is None:
+        return None, None
+    if isinstance(language, str):
+        text = language.strip().lower()
+        if text in ("", "auto"):
+            return None, None
+        raw = [part for part in text.split(",") if part.strip()]
+    else:
+        raw = [str(part) for part in language]
+    codes: list[str] = []
+    for part in raw:
+        code = LANGUAGE_ALIASES.get(part.strip().lower(), part.strip().lower())
+        if code not in WHISPER_LANGUAGES:
+            raise ValueError(t("error.language", code=part.strip()))
+        if code not in codes:
+            codes.append(code)
+    if not codes:
+        return None, None
+    return (codes[0], None) if len(codes) == 1 else (None, tuple(codes))
+
+
+def model_for(language: str | None, size: str = "turbo") -> str:
+    """The model for a language code and size ('turbo' or 'full'): Hebrew and
+    Russian have fine-tuned models, every other language the multilingual one."""
+    if size not in SIZES:
+        raise ValueError(f"size must be one of {SIZES}, not {size!r}")
+    return LANGUAGE_MODELS.get(language or "*", LANGUAGE_MODELS["*"])[size]
+
+
+def required_models(model: str = "turbo", language: str | Iterable[str] | None = "he") -> list[str]:
+    """Every model a run with these settings may need, e.g. to download them in
+    advance. With language detection that is the detection model plus the
+    model of each candidate language (Hebrew and Russian for 'auto')."""
+    fixed, candidates = parse_language(language)
+    if model not in SIZES:
+        return [model]
+    if fixed is not None:
+        return [model_for(fixed, model)]
+    names = [DETECTION_MODEL] + [model_for(code, model) for code in (candidates or ("he", "ru"))]
+    return list(dict.fromkeys(names))
+
+
+# ----------------------------------------------------------------------------
+# Downloading models
 # ----------------------------------------------------------------------------
 def resolve_model(name: str = "turbo", attempts: int = 4) -> str:
-    """Local folder of a CTranslate2 Whisper model ('turbo', 'full', a Hugging
-    Face id or a local folder). Uses the copy on disk when there is one, without
-    contacting the network; otherwise downloads it once, with retries.
-    Raises ModelDownloadError."""
+    """Local folder of a CTranslate2 Whisper model ('turbo' and 'full' mean the
+    Hebrew models; otherwise a Hugging Face id or a local folder). Uses the copy
+    on disk when there is one, without contacting the network; otherwise
+    downloads it once, with retries. Raises ModelDownloadError."""
     name = MODELS.get(name, name)
     local = Path(name).expanduser()
     if local.is_dir():
@@ -158,7 +245,7 @@ def resolve_model(name: str = "turbo", attempts: int = 4) -> str:
     except Exception:
         pass
 
-    log.info("Downloading %s (one time; resumes if interrupted)...", name)
+    log.info(t("downloading", model=name))
     last: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
@@ -169,15 +256,14 @@ def resolve_model(name: str = "turbo", attempts: int = 4) -> str:
         except Exception as e:
             kind = type(e).__name__
             if kind in ("RepositoryNotFoundError", "RevisionNotFoundError", "GatedRepoError"):
-                raise ModelDownloadError(
-                    f"Model '{name}' was not found or is not accessible ({kind})."
-                ) from e
+                raise ModelDownloadError(t("model_not_found", model=name, kind=kind)) from e
             last = e
-            log.warning("  attempt %d/%d failed: %s", attempt, attempts, f"{kind}: {e}"[:200])
+            log.warning(t("attempt_failed", attempt=attempt, attempts=attempts,
+                          error=f"{kind}: {e}"[:200]))
             if attempt < attempts:
                 time.sleep(4 * attempt)
     raise ModelDownloadError(
-        f"Could not download '{name}': {type(last).__name__}: {last}"
+        t("download_failed", model=name, error=f"{type(last).__name__}: {last}")
     ) from last
 
 
@@ -222,16 +308,11 @@ class Diarizer:
         lowered = self.model.lower()
         if "precision" in lowered or lowered.endswith("-cloud"):
             # Those pipelines run on pyannoteAI's servers: the audio would leave the machine.
-            raise DiarizationUnavailable(
-                f"{self.model} is a cloud pipeline; only local pipelines are supported"
-            )
+            raise DiarizationUnavailable(t("diarize_cloud", model=self.model))
         try:
             from pyannote.audio import Pipeline
         except ImportError as e:
-            raise DiarizationUnavailable(
-                "Speaker labels need extra packages: pip install 'hebrew-transcribe[diarize]' "
-                "(from a clone of the repository: bash setup.sh --diarize)"
-            ) from e
+            raise DiarizationUnavailable(t("diarize_extra")) from e
         try:
             try:
                 pipeline = Pipeline.from_pretrained(self.model, token=token)
@@ -239,15 +320,10 @@ class Diarizer:
                 pipeline = Pipeline.from_pretrained(self.model, use_auth_token=token)
         except Exception as e:
             raise DiarizationUnavailable(
-                f"Could not load {self.model} ({type(e).__name__}: {str(e)[:160]}). "
-                "Accept the model's terms on Hugging Face with the account that owns "
-                "the token, and check the token."
+                t("diarize_failed", model=self.model, kind=type(e).__name__, error=str(e)[:160])
             ) from e
         if pipeline is None:  # 3.x returns None when access is refused
-            raise DiarizationUnavailable(
-                f"No access to {self.model}. Accept the model's terms on Hugging Face "
-                "with the account that owns the token, and check the token."
-            )
+            raise DiarizationUnavailable(t("diarize_no_access", model=self.model))
         if device == "cuda":
             import torch
 
@@ -310,7 +386,8 @@ class Segment:
 @dataclass
 class Transcript:
     """The result for one file. `save()` writes .txt, .srt and .json; `load()`
-    reads a .json back."""
+    reads a .json back. `language` is the setting asked for ('he', 'auto',
+    'he,ru'); `detected_language` is the language actually used."""
 
     file: str
     sha256: str
@@ -319,6 +396,7 @@ class Transcript:
     model: str
     language: str
     detected_language: str | None = None
+    language_probability: float | None = None
     diarization: str | None = None
     created: str = ""
     low_confidence_threshold: float = LOW_CONFIDENCE
@@ -348,6 +426,7 @@ class Transcript:
             "model": self.model,
             "language": self.language,
             "detected_language": self.detected_language,
+            "language_probability": self.language_probability,
             "diarization": self.diarization,
             "created": self.created,
             "low_confidence_threshold": self.low_confidence_threshold,
@@ -367,6 +446,7 @@ class Transcript:
             model=data.get("model", ""),
             language=data.get("language", ""),
             detected_language=data.get("detected_language"),
+            language_probability=data.get("language_probability"),
             diarization=data.get("diarization"),
             created=data.get("created", ""),
             low_confidence_threshold=data.get("low_confidence_threshold", LOW_CONFIDENCE),
@@ -407,8 +487,12 @@ class Transcript:
 class Transcriber:
     """Loads the models once; `transcribe()` then handles any number of files.
 
-    model      'turbo' (default), 'full', a Hugging Face id or a local folder
-    language   language code (default 'he'); None or 'auto' to detect
+    model      'turbo' (default) or 'full', which pick the model that suits the
+               language (see LANGUAGE_MODELS), or one fixed model: a Hugging Face
+               id or a local folder
+    language   'he' (default), 'ru' or any other code; 'auto' (or None) to detect
+               each file's language and use the matching model; or a list such as
+               'he,ru' to choose among those languages only
     device     'auto' (an NVIDIA GPU if available, else the CPU), 'cpu', 'cuda'
     diarize    True to add speaker labels (needs the [diarize] extra and a
                Hugging Face token: hf_token=, HF_TOKEN or `hf auth login`)
@@ -416,15 +500,16 @@ class Transcriber:
     prompt     names and terms that occur in the audio, to help recognise them
     flag_below segments below this average log-probability are marked low-confidence
 
-    Raises ModelDownloadError, or DiarizationUnavailable when diarize=True and
-    speaker labels cannot be provided.
+    Models are loaded when first needed and then kept. Raises ValueError for an
+    unknown language, ModelDownloadError, or DiarizationUnavailable when
+    diarize=True and speaker labels cannot be provided.
     """
 
     def __init__(
         self,
         model: str = "turbo",
         *,
-        language: str | None = "he",
+        language: str | Iterable[str] | None = "he",
         device: str = "auto",
         threads: int | None = None,
         diarize: bool = False,
@@ -434,24 +519,72 @@ class Transcriber:
         prompt: str | None = None,
         flag_below: float = LOW_CONFIDENCE,
     ):
-        self.model_name = MODELS.get(model, model)
-        self.language = None if (language or "auto").lower() == "auto" else language
+        self.size = model if model in SIZES else None
+        self.custom_model = None if self.size else model
+        self.fixed_language, self.candidates = parse_language(language)
+        self.language = self.fixed_language  # None: detected for each file
+        if self.fixed_language:
+            self.requested_language = self.fixed_language
+        else:
+            self.requested_language = ",".join(self.candidates) if self.candidates else "auto"
         self.device = ("cuda" if cuda_available() else "cpu") if device == "auto" else device
+        self.threads = threads or os.cpu_count() or 4
         self.prompt = prompt
         self.flag_below = flag_below
         if diarizer is None and diarize:
             diarizer = Diarizer(hf_token or find_hf_token(), diarization_model, self.device)
         self.diarizer = diarizer
 
-        model_dir = resolve_model(self.model_name)
-        from faster_whisper import WhisperModel
+        self._loaded: dict[str, Any] = {}
+        if self.fixed_language is None:
+            # Detection: a custom model detects for itself; otherwise the multilingual model.
+            self.detector_name: str | None = self.custom_model or DETECTION_MODEL
+            self.model_name = self.detector_name
+        else:
+            self.detector_name = None
+            self.model_name = self.custom_model or model_for(self.fixed_language, self.size)
+        self.model = self._load(self.model_name)
 
-        self.model = WhisperModel(
-            model_dir,
-            device=self.device,
-            compute_type="float16" if self.device == "cuda" else "int8",
-            cpu_threads=threads or os.cpu_count() or 4,
-        )
+    def _load(self, name: str):
+        """The WhisperModel for `name`, loading (and downloading) it on first use."""
+        if name not in self._loaded:
+            if self._loaded:  # the first model is announced by the caller
+                log.info(t("loading_model", model=name))
+            model_dir = resolve_model(name)
+            from faster_whisper import WhisperModel
+
+            self._loaded[name] = WhisperModel(
+                model_dir,
+                device=self.device,
+                compute_type="float16" if self.device == "cuda" else "int8",
+                cpu_threads=self.threads,
+            )
+        return self._loaded[name]
+
+    def detect_language(self, audio: Any) -> tuple[str, float]:
+        """(language code, probability) for decoded 16 kHz audio, limited to the
+        candidate languages if any were given."""
+        detector = self._load(self.detector_name or DETECTION_MODEL)
+        fallback = self.candidates[0] if self.candidates else "he"
+        result = None
+        for use_vad in (True, False):  # without VAD if it finds no speech at all
+            try:
+                result = detector.detect_language(
+                    audio, vad_filter=use_vad,
+                    language_detection_segments=3, language_detection_threshold=0.5,
+                )
+                break
+            except Exception:
+                continue
+        if result is None:
+            log.warning(t("no_speech_detected", language=language_name(fallback)))
+            return fallback, 0.0
+        language, probability, all_probabilities = result
+        if self.candidates:
+            scores = dict(all_probabilities)
+            language = max(self.candidates, key=lambda code: scores.get(code, 0.0))
+            probability = scores.get(language, 0.0)
+        return language, float(probability)
 
     def transcribe(
         self,
@@ -479,16 +612,26 @@ class Transcriber:
 
         turns: list[tuple[float, float, str]] = []
         if self.diarizer is not None:
-            log.info("   separating speakers...")
+            log.info(t("separating"))
             try:
                 turns = self.diarizer(audio, speakers or None)
             except Exception as e:
-                log.warning("   ! speaker separation failed (%s); continuing without it",
-                            type(e).__name__)
+                log.warning(t("separation_failed", kind=type(e).__name__))
 
-        raw_segments, info = self.model.transcribe(
+        language, probability = self.fixed_language, None
+        if language is None:
+            language, probability = self.detect_language(audio)
+        model_name = self.custom_model or model_for(language, self.size)
+        if probability is not None:
+            log.info(t("detected", language=language_name(language),
+                       percent=round(probability * 100), model=model_name))
+            if probability < UNCERTAIN_LANGUAGE:
+                log.warning(t("uncertain"))
+        model = self._load(model_name)
+
+        raw_segments, info = model.transcribe(
             audio,
-            language=self.language,  # None = detect
+            language=language,
             beam_size=5,
             vad_filter=True,  # skip silence: fewer invented words
             vad_parameters={"min_silence_duration_ms": 500},
@@ -524,9 +667,10 @@ class Transcriber:
             sha256=digest,
             bytes=src.stat().st_size,
             duration=round(duration, 2),
-            model=self.model_name,
-            language=self.language or "auto",
-            detected_language=getattr(info, "language", None),
+            model=model_name,
+            language=self.requested_language,
+            detected_language=language or getattr(info, "language", None),
+            language_probability=None if probability is None else round(probability, 4),
             diarization=self.diarizer.model if (self.diarizer is not None and turns) else None,
             created=datetime.now().astimezone().isoformat(timespec="seconds"),
             low_confidence_threshold=self.flag_below,
@@ -539,7 +683,7 @@ def transcribe(
     path: str | os.PathLike,
     *,
     model: str = "turbo",
-    language: str | None = "he",
+    language: str | Iterable[str] | None = "he",
     diarize: bool = False,
     speakers: int | None = None,
     prompt: str | None = None,
